@@ -3,7 +3,7 @@ plugins {
 }
 
 android {
-    namespace = "com.android.syncengine"
+    namespace = "io.github.prathamesh2640.sync.sample"
     compileSdk {
         version = release(36) {
             minorApiLevel = 1
@@ -11,7 +11,7 @@ android {
     }
 
     defaultConfig {
-        applicationId = "com.android.syncengine"
+        applicationId = "io.github.prathamesh2640.sync.sample"
         minSdk = 24
         targetSdk = 36
         versionCode = 1

@@ -3,7 +3,7 @@ plugins {
 }
 
 android {
-    namespace = "com.yourlibrary.sync.core"
+    namespace = "io.github.prathamesh2640.sync.core"
     compileSdk = 36
 
     defaultConfig {

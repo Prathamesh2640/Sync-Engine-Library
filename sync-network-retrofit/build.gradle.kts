@@ -3,7 +3,7 @@ plugins {
 }
 
 android {
-    namespace = "com.yourlibrary.sync.retrofit"
+    namespace = "io.github.prathamesh2640.sync.retrofit"
     compileSdk = 36
 
     defaultConfig {

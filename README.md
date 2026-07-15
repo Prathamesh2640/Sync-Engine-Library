@@ -186,12 +186,12 @@ includeBuild("../Sync-Engine-Library")
 
 // app/build.gradle.kts
 dependencies {
-    implementation("com.yourlibrary.sync:sync-core:1.0.0")
-    implementation("com.yourlibrary.sync:sync-storage-room:1.0.0")
-    implementation("com.yourlibrary.sync:sync-network-retrofit:1.0.0")
+    implementation("io.github.prathamesh2640.sync:sync-core:1.0.0")
+    implementation("io.github.prathamesh2640.sync:sync-storage-room:1.0.0")
+    implementation("io.github.prathamesh2640.sync:sync-network-retrofit:1.0.0")
 
     // Debug builds only — never ship the dashboard in production
-    debugImplementation("com.yourlibrary.sync:sync-ui-dashboard:1.0.0")
+    debugImplementation("io.github.prathamesh2640.sync:sync-ui-dashboard:1.0.0")
 }
 ```
 
@@ -199,67 +199,4 @@ dependencies {
 
 See the example in **section 1** above.
 
-### Step 3 — Implement `SyncNetworkAdapter`
-
-Connect SyncEngine to your Retrofit/Ktor API service. See **section 3** above.
-
-### Step 4 — Build and start `SyncEngine`
-
-`SyncEngine` is the entry-point interface host apps hold. It extends `Closeable`, so it works with
-Kotlin `use { }` and Java try-with-resources:
-
-```kotlin
-// Build a configuration (see section 5)
-val config = SyncEngineConfig {
-    batchSize = 50
-    logLevel = LogLevel.DEBUG
-}
-
-// The SyncEngine.create(context, config) factory arrives with the engine
-// implementation in an upcoming commit; the interface below is stable now.
-val engine: SyncEngine = /* SyncEngine.create(context, config) */
-
-// Trigger a sync manually — returns a SyncResult, never throws
-when (val result = engine.triggerSync()) {
-    is SyncResult.Success        -> { /* result.syncedCount, result.conflictCount */ }
-    is SyncResult.PartialFailure -> { /* inspect result.errors */ }
-    is SyncResult.Failure        -> { /* handle result.error */ }
-}
-
-// Observe sync state as a StateFlow
-engine.syncState.collect { state -> /* update your UI */ }
-
-// Always close when done (e.g., in Application.onTerminate)
-engine.close()
-```
-
----
-
-## Security notes
-
-- **WorkManager payloads** contain only non-sensitive job UUIDs — no tokens or credentials are persisted to disk by the library.
-- **Auth tokens** are retrieved at request time through your `SyncNetworkAdapter` — never stored by SyncEngine.
-- **Tombstone retention** is configurable (`tombstoneRetentionDays`). Records the user has deleted are hard-deleted from the local database automatically after this period, supporting GDPR Article 17 compliance workflows.
-- **Idempotency keys** are UUID v4 — cryptographically random, not predictable from network traffic.
-
----
-
-## Project status
-
-This library is under active development. The table below shows the current state of each module.
-
-| Module | Status | Notes |
-|---|---|---|
-| `:sync-core` | 🟡 In Progress | Public API contracts complete — models, adapter (`SyncNetworkAdapter`, `ConflictResolver`, `NetworkResult`), results (`SyncResult`, `SyncError`), and engine surface (`SyncEngine`, `SyncEngineConfig` DSL, `LogLevel`). Engine implementation + `create()` factory next |
-| `:sync-storage-room` | 🔴 Not Started | BaseSyncDao stub present |
-| `:sync-network-retrofit` | 🔴 Not Started | |
-| `:sync-ui-dashboard` | 🔴 Not Started | |
-| `:sample-app` | 🔴 Not Started | |
-
-See [memory.md](memory.md) for the full implementation plan and known issues.
-
----
-
-## Contributing
-
-One feature per commit. Every commit must compile and must not break any existing test. See `memory.md` for the ordered implementation plan and architectural decisions.
+### Step 3

@@ -3,7 +3,7 @@ plugins {
 }
 
 android {
-    namespace = "com.yourlibrary.sync.ui"
+    namespace = "io.github.prathamesh2640.sync.ui"
     compileSdk = 36
 
     defaultConfig {

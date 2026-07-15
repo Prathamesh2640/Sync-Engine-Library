@@ -165,7 +165,7 @@ dependencyResolutionManagement {
 And in `app/build.gradle.kts`:
 ```kotlin
 dependencies {
-    implementation("com.yourlibrary.sync:sync-core:1.0.0")
+    implementation("io.github.prathamesh2640.sync:sync-core:1.0.0")
 }
 ```
 

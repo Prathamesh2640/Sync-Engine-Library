@@ -3,7 +3,7 @@ plugins {
 }
 
 android {
-    namespace = "com.yourlibrary.sync.room"
+    namespace = "io.github.prathamesh2640.sync.room"
     compileSdk = 36
 
     defaultConfig {
