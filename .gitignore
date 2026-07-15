@@ -1,0 +1,136 @@
+# ============================================================
+# SyncEngine Android Library — .gitignore
+# ============================================================
+
+# ─── Compiled / Build Output ────────────────────────────────
+*.pyc
+*.obj
+*.o
+*.lib
+*.dll
+*.class
+*.dex
+*.aar
+*.apk
+*.ap_
+*.aab
+
+# Build directories (all modules)
+bin/
+gen/
+out/
+[Bb]uild/
+*/build/
+**/build/
+
+# ─── Gradle ─────────────────────────────────────────────────
+.gradle/
+**/.gradle/
+gradle-app.setting
+.gradletasknamecache
+!gradle/wrapper/gradle-wrapper.jar
+!gradle/wrapper/gradle-wrapper.properties
+gradle-daemon-jvm.properties
+
+# Kotlin build caches
+.kotlin/
+
+# ─── Android Studio / IntelliJ IDEA ─────────────────────────
+.idea/
+*.iml
+*.iws
+*.ipr
+/captures/
+.externalNativeBuild/
+.cxx/
+*.hprof
+
+# Keep .idea/.gitignore if it exists (project-level VCS settings)
+!.idea/.gitignore
+
+# ─── Local Developer Config ──────────────────────────────────
+local.properties
+keystore.properties
+
+# ─── Security — NEVER commit these ──────────────────────────
+*.jks
+*.keystore
+*.p12
+*.pfx
+google-services.json
+firebase.json
+secrets.properties
+*.env
+.env.*
+
+# ─── OS-specific ─────────────────────────────────────────────
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+desktop.ini
+
+# ─── Logs ────────────────────────────────────────────────────
+*.log
+logs/
+
+# ─── NDK / CMake ─────────────────────────────────────────────
+obj/
+.externalNativeBuild/
+
+# ─── Test Results ────────────────────────────────────────────
+test-results/
+reports/
+
+# ─── ProGuard / R8 mapping (keep for released builds only) ───
+# Uncomment if you want to ignore mapping files locally:
+# mapping.txt
+# seeds.txt
+# usage.txt
+
+# ─── Room — Generated Code ───────────────────────────────────
+# KSP / kapt generated sources are in build/ (already ignored)
+
+# ─── API compatibility dump (should be committed) ────────────
+# .api files MUST be committed — they track public API surface
+!*.api
+
+# ─── Coverage Reports ────────────────────────────────────────
+jacoco/
+*.exec
+*.ec
+
+# ─── Temporary / Editor files ────────────────────────────────
+*.swp
+*.swo
+*~
+*.bak
+*.tmp
+*.orig
+
+# ─── Maven local publish cache ───────────────────────────────
+.m2/
+
+# ─── Node / npm (if any tooling scripts are added) ───────────
+node_modules/
+npm-debug.log*
+
+# ─── Boilerplate files — removed from git, suppressed from git status ─────────
+# Android Studio regenerates these; they are never committed to this project.
+sample-app/src/test/java/com/android/syncengine/ExampleUnitTest.kt
+sample-app/src/androidTest/java/com/android/syncengine/ExampleInstrumentedTest.kt
+
+# ─── Developer-only working files (not for consumers) ────────────────────────
+# Feature checklist — personal dev tracker, not part of the library
+FEATURES.md
+# Project memory — internal AI assistant context, not for consumers
+memory.md
+# Completion roadmap — personal dev tracker, not part of the library
+PLAN.md
+# Skill update staging folder
+skill-update/
+memory.md
+memory.md

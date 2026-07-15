@@ -1,0 +1,41 @@
+# ============================================================
+# SyncEngine — Git Attributes
+# Normalise line endings: LF in repo, OS-native on checkout
+# ============================================================
+
+# Default: normalise all text files to LF in the repo
+* text=auto eol=lf
+
+# Kotlin / Gradle source — always LF
+*.kt        text eol=lf
+*.kts       text eol=lf
+*.toml      text eol=lf
+*.properties text eol=lf
+*.pro       text eol=lf
+*.xml       text eol=lf
+*.json      text eol=lf
+*.md        text eol=lf
+*.txt       text eol=lf
+*.java      text eol=lf
+
+# Shell scripts — LF mandatory (Windows CRLF breaks bash)
+gradlew     text eol=lf
+
+# Windows batch scripts — CRLF on checkout
+gradlew.bat text eol=crlf
+*.bat       text eol=crlf
+*.cmd       text eol=crlf
+
+# Binary files — no line-ending conversion
+*.jar       binary
+*.aar       binary
+*.apk       binary
+*.aab       binary
+*.png       binary
+*.jpg       binary
+*.jpeg      binary
+*.gif       binary
+*.webp      binary
+*.pdf       binary
+*.jks       binary
+*.keystore  binary
