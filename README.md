@@ -199,4 +199,68 @@ dependencies {
 
 See the example in **section 1** above.
 
-### Step 3
+### Step 3 — Implement your network adapter
+
+See the `SyncNetworkAdapter` example in **section 3** above.
+
+### Step 4 — Create the engine and sync
+
+The engine is created from its collaborators — **no Android `Context` is required**, which keeps
+`:sync-core` framework-free and unit-testable. Construction is cheap and does no I/O; nothing syncs
+until you call `triggerSync()`.
+
+```kotlin
+val engine: SyncEngine = SyncEngine.create(
+    adapter = MyApiAdapter(api),
+    config = SyncEngineConfig { batchSize = 100 },
+)
+
+// Observe the engine's state reactively (e.g. from a ViewModel):
+engine.syncState
+    .onEach { state -> render(state) }   // PENDING / SYNCING / SYNCED / FAILED / CONFLICT
+    .launchIn(viewModelScope)
+
+// Trigger a sync — suspends until the run completes, never throws:
+when (val result = engine.triggerSync()) {
+    is SyncResult.Success        -> log("synced ${result.syncedCount}")
+    is SyncResult.PartialFailure -> retryLater(result.errors)
+    is SyncResult.Failure        -> show(result.error)
+}
+```
+
+`triggerSync()` is safe to call from any dispatcher and is **single-flight**: if a run is already in
+progress, a concurrent call is a no-op returning `Success(0, 0)` rather than starting a second run.
+Each item in a batch is pushed independently, so one item's failure never aborts the others — the run
+reports `PartialFailure` instead.
+
+### Step 5 — Release the engine
+
+`SyncEngine` is `Closeable`. Call `close()` (or use `use { }`) when you are done to cancel its
+coroutine scope — this prevents leaked coroutines in the host process. A closed engine returns
+`SyncResult.Failure` from any further `triggerSync()` call.
+
+```kotlin
+engine.close()
+// or, scoped:
+SyncEngine.create(adapter).use { engine ->
+    engine.triggerSync()
+}
+```
+
+---
+
+## Implementation status
+
+`:sync-core` is being built up commit by commit. As of the engine-internals milestone (Commits 5–6):
+
+| Capability | Status |
+|---|---|
+| Public API contracts (entity, results, adapter, config, engine) | ✅ Available |
+| `SyncEngine.create()` + `triggerSync()` + `close()` | ✅ Available |
+| Guarded state machine + thread-safe queue + single-flight, isolated batch push | ✅ Available |
+| Room-backed storage that populates the queue (`:sync-storage-room`) | 🔜 Next commit |
+| Two-way pull + conflict resolution during a run | 🔜 With storage/network commits |
+
+Until the storage adapter lands, the engine syncs the entities placed in its internal queue and
+`Success.conflictCount` is always `0`. The public API above is stable and will not change as those
+capabilities are filled in.

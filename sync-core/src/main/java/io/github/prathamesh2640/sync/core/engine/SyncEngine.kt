@@ -1,6 +1,9 @@
 package io.github.prathamesh2640.sync.core.engine
 
+import io.github.prathamesh2640.sync.core.adapter.SyncNetworkAdapter
+import io.github.prathamesh2640.sync.core.internal.SyncEngineImpl
 import io.github.prathamesh2640.sync.core.model.SyncState
+import io.github.prathamesh2640.sync.core.model.SyncableEntity
 import io.github.prathamesh2640.sync.core.result.SyncResult
 import kotlinx.coroutines.flow.StateFlow
 import java.io.Closeable
@@ -61,4 +64,44 @@ public interface SyncEngine : Closeable {
      * emitting new values.
      */
     override fun close()
+
+    public companion object {
+
+        /**
+         * Create a ready-to-use [SyncEngine].
+         *
+         * The engine is constructed from its collaborators directly — it takes
+         * **no Android `Context`**, which keeps `:sync-core` framework-free and
+         * fully JVM-testable (see ADL-006). Host apps that use Room/WorkManager
+         * wire those in through the `adapter` (and, in a later version, a storage
+         * source); this module never touches `android.*`.
+         *
+         * Construction is cheap and does no I/O — nothing is synced until the
+         * first call to [triggerSync].
+         *
+         * ```kotlin
+         * val engine = SyncEngine.create(
+         *     adapter = myNetworkAdapter,
+         *     config = SyncEngineConfig { batchSize = 100 },
+         * )
+         * engine.use {
+         *     val result = it.triggerSync()
+         * }
+         * ```
+         *
+         * @param adapter the host app's [SyncNetworkAdapter]; the engine calls it
+         *   to move entities across the network and never talks to the network
+         *   directly.
+         * @param config tuning parameters. Defaults to [SyncEngineConfig] with
+         *   every option at its default.
+         * @return a new engine. Remember to [close] it (or use `use { }`) to
+         *   release its coroutine scope.
+         */
+        @JvmStatic
+        @JvmOverloads
+        public fun <T : SyncableEntity> create(
+            adapter: SyncNetworkAdapter<T>,
+            config: SyncEngineConfig = SyncEngineConfig {},
+        ): SyncEngine = SyncEngineImpl(adapter = adapter, config = config)
+    }
 }

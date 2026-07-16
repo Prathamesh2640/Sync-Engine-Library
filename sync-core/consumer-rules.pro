@@ -21,3 +21,35 @@
 -keepclassmembers class * implements io.github.prathamesh2640.sync.core.model.SyncableEntity {
     <fields>;
 }
+
+# LogLevel enum — configuration value used from host code
+-keep public enum io.github.prathamesh2640.sync.core.engine.LogLevel {
+    public static **[] values();
+    public static ** valueOf(java.lang.String);
+    *;
+}
+
+# Public interfaces host apps implement or hold
+-keep public interface io.github.prathamesh2640.sync.core.adapter.ConflictResolver { *; }
+-keep public interface io.github.prathamesh2640.sync.core.adapter.SyncNetworkAdapter { *; }
+-keep public interface io.github.prathamesh2640.sync.core.engine.SyncEngine { *; }
+
+# SyncEngine.create(...) factory lives on the interface's companion; keep the
+# generated static entry point and the companion so the DSL is reachable.
+-keep class io.github.prathamesh2640.sync.core.engine.SyncEngine$Companion { *; }
+
+# Engine configuration — Builder + DSL used from host code
+-keep public class io.github.prathamesh2640.sync.core.engine.SyncEngineConfig { *; }
+-keep public class io.github.prathamesh2640.sync.core.engine.SyncEngineConfig$Builder { *; }
+-keep public class io.github.prathamesh2640.sync.core.engine.SyncEngineConfig$Companion { *; }
+
+# Sealed result hierarchies returned across the public API — keep every branch
+-keep public class io.github.prathamesh2640.sync.core.result.SyncResult { *; }
+-keep public class io.github.prathamesh2640.sync.core.result.SyncResult$* { *; }
+-keep public class io.github.prathamesh2640.sync.core.result.SyncError { *; }
+-keep public class io.github.prathamesh2640.sync.core.result.SyncError$* { *; }
+-keep public class io.github.prathamesh2640.sync.core.adapter.NetworkResult { *; }
+-keep public class io.github.prathamesh2640.sync.core.adapter.NetworkResult$* { *; }
+
+# Internal engine implementation (io.github.prathamesh2640.sync.core.internal.*)
+# is deliberately NOT kept — R8 is free to shrink and obfuscate it.
