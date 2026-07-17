@@ -1,36 +1,165 @@
 # SyncEngine
 
-An offline-first data synchronisation library for Android.
+**An offline-first data synchronisation library for Android.**
 
 SyncEngine handles the hard parts of offline-first development: queueing local writes when the network is unavailable, pushing them to the server when connectivity returns, detecting conflicts between local and remote versions, and keeping your local database consistent throughout. Your app code works against plain Kotlin data classes — the library does the rest.
+
+Written in Kotlin. Built on Coroutines + Flow, Room, WorkManager, and Retrofit. Modular — you pick only the pieces you need.
+
+---
+
+## Table of contents
+
+- [Is this library right for your app?](#is-this-library-right-for-your-app)
+- [Supported versions](#supported-versions)
+- [Install](#install)
+- [Permissions & manifest](#permissions--manifest)
+- [Module structure](#module-structure)
+- [How it works](#how-it-works)
+- [Quick start (5 steps)](#quick-start-5-steps)
+- [Java interop](#java-interop)
+- [ProGuard / R8](#proguard--r8)
+- [Testing your integration](#testing-your-integration)
+- [FAQ](#faq)
+- [Implementation status](#implementation-status)
+- [Versioning & stability](#versioning--stability)
+- [License](#license)
 
 ---
 
 ## Is this library right for your app?
 
 **Use SyncEngine if your app:**
-- Stores user data locally and needs it synced to a backend
-- Must work fully offline and sync automatically when back online
-- Uses Room for local persistence
-- Uses Retrofit or Ktor for network calls
-- Needs configurable conflict resolution (last-write-wins, server-wins, or custom logic)
+- Stores user data locally and needs it synced to a backend.
+- Must work fully offline and sync automatically when back online.
+- Uses Room for local persistence.
+- Uses Retrofit (or any HTTP client wrapped behind a `suspend` function) for network calls.
+- Needs configurable conflict resolution (last-write-wins, server-wins, or custom logic).
 
 **Do not use SyncEngine if:**
-- Your app is purely online with no local persistence requirement
-- You only need one-way data download (no local writes to sync back)
-- You require real-time sync (WebSockets/push). SyncEngine is pull/push on demand, not streaming.
+- Your app is purely online with no local persistence requirement.
+- You only need one-way data download (no local writes to sync back).
+- You need real-time streaming sync (WebSockets, push). SyncEngine is push/pull on demand, not streaming.
 
 ---
 
-## Requirements
+## Supported versions
 
-| Requirement | Minimum |
-|---|---|
-| Android minSdk | 24 (Android 7.0) |
-| Kotlin | 2.1.0 |
-| Coroutines | 1.8.1 |
-| Room | 2.7.1 (optional — only if using `:sync-storage-room`) |
-| Retrofit | 2.x (optional — only if using `:sync-network-retrofit`) |
+SyncEngine targets modern Android but keeps its floor low so it works in most production apps.
+
+| Requirement | Version | Notes |
+|---|---|---|
+| **Android minSdk** | **24** (Android 7.0 Nougat) | Covers ~99% of active devices |
+| **Android targetSdk / compileSdk** | 36 (Android 15) | Newer is fine — no target-specific APIs used |
+| **Kotlin** | 2.1.0+ | Your host app can use 2.0.x if it shades stdlib; 2.1+ recommended |
+| **Android Gradle Plugin** | 9.2.x (built-in Kotlin) | Works on AGP 8.x consumers too — the library ships pre-compiled AARs |
+| **JDK (build only)** | 17 | Runtime is Android; JDK only affects your build machine |
+| **Coroutines** | 1.8.1+ | Provided transitively through `sync-core` |
+| **Room** | 2.7.1+ | Only if you use `:sync-storage-room` |
+| **Retrofit** | 2.11.0+ | Only if you use `:sync-network-retrofit` |
+| **WorkManager** | 2.10.0+ | Only if you use `:sync-workmanager` |
+| **Jetpack Compose BOM** | 2024.10.00+ | Only if you use `:sync-ui-dashboard` |
+
+The library ships as **standard Android AARs** — nothing about your host app's toolchain matters as long as it can consume AARs and the versions above are met.
+
+---
+
+## Install
+
+The library is currently distributed from source (not yet on Maven Central). Pick the option that matches your setup.
+
+### Option A — JitPack (recommended for external consumers)
+
+[JitPack](https://jitpack.io) builds the library on demand from a GitHub tag. No publishing infrastructure needed.
+
+**`settings.gradle.kts`:**
+```kotlin
+dependencyResolutionManagement {
+    repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
+    repositories {
+        google()
+        mavenCentral()
+        maven { url = uri("https://jitpack.io") }
+    }
+}
+```
+
+**`app/build.gradle.kts`:**
+```kotlin
+dependencies {
+    // Required — the core engine
+    implementation("com.github.Prathamesh2640.Sync-Engine-Library:sync-core:<TAG>")
+
+    // Optional — pick what you need
+    implementation("com.github.Prathamesh2640.Sync-Engine-Library:sync-storage-room:<TAG>")
+    implementation("com.github.Prathamesh2640.Sync-Engine-Library:sync-network-retrofit:<TAG>")
+    implementation("com.github.Prathamesh2640.Sync-Engine-Library:sync-workmanager:<TAG>")
+
+    // Debug builds only — never ship the dashboard in production
+    debugImplementation("com.github.Prathamesh2640.Sync-Engine-Library:sync-ui-dashboard:<TAG>")
+}
+```
+
+Replace `<TAG>` with a released git tag (e.g. `1.0.0`). Once the first tag is pushed, JitPack builds the AARs automatically on first request.
+
+### Option B — Composite build (recommended for local development)
+
+If you want to develop the library and your host app side by side, use Gradle's composite build. No publishing.
+
+**`settings.gradle.kts` of your host app:**
+```kotlin
+includeBuild("../Sync-Engine-Library") {
+    dependencySubstitution {
+        substitute(module("io.github.prathamesh2640.sync:sync-core"))
+            .using(project(":sync-core"))
+        substitute(module("io.github.prathamesh2640.sync:sync-storage-room"))
+            .using(project(":sync-storage-room"))
+        substitute(module("io.github.prathamesh2640.sync:sync-network-retrofit"))
+            .using(project(":sync-network-retrofit"))
+        substitute(module("io.github.prathamesh2640.sync:sync-workmanager"))
+            .using(project(":sync-workmanager"))
+        substitute(module("io.github.prathamesh2640.sync:sync-ui-dashboard"))
+            .using(project(":sync-ui-dashboard"))
+    }
+}
+```
+
+Then declare the same `implementation("io.github.prathamesh2640.sync:sync-core:...")` coordinates in your app — Gradle transparently substitutes the local source.
+
+### Option C — Local Maven
+
+Publish once from the library, then consume like any Maven artifact.
+
+**In the library:** `./gradlew publishToMavenLocal`
+
+**In your host app's `settings.gradle.kts`:**
+```kotlin
+dependencyResolutionManagement {
+    repositories {
+        mavenLocal()
+        google()
+        mavenCentral()
+    }
+}
+```
+
+Coordinates are the same as JitPack under the `io.github.prathamesh2640.sync` group.
+
+---
+
+## Permissions & manifest
+
+Add these to your host app's `AndroidManifest.xml`:
+
+```xml
+<!-- Required by any Retrofit / HTTP call the library makes on your behalf -->
+<uses-permission android:name="android.permission.INTERNET" />
+
+<!-- Optional: lets WorkManager wait for a real network before running -->
+<uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+```
+
+The library modules do not declare permissions themselves — they inherit yours through manifest merging. `:sync-ui-dashboard` contributes a debug-only `SyncDashboardActivity` (not exported) when included via `debugImplementation`.
 
 ---
 
@@ -40,7 +169,7 @@ SyncEngine is split into focused, independently consumable modules. Import only 
 
 ```
 :sync-core               — interfaces, models, state machine (required)
-:sync-storage-room       — Room-based local persistence adapter
+:sync-storage-room       — Room-based durable local queue
 :sync-network-retrofit   — Retrofit-based network adapter
 :sync-workmanager        — WorkManager-based background scheduler
 :sync-ui-dashboard       — debug-only Compose dashboard (not for production)
@@ -56,8 +185,10 @@ sync-ui-dashboard      → sync-core
 sync-workmanager       → sync-core
 sync-network-retrofit  → sync-core
 sync-storage-room      → sync-core
-sync-core              → Kotlin stdlib + Coroutines only
+sync-core              → Kotlin stdlib + Coroutines only  (no Android framework — pure JVM)
 ```
+
+`:sync-core` is framework-free by design: you can unit-test it on the JVM without Robolectric or an emulator.
 
 ---
 
@@ -81,9 +212,9 @@ data class Note(
 ```
 
 Three things to know:
-- `id` must be a **UUID v4** generated client-side at creation time. It never changes. It is the idempotency key for all network requests.
+- `id` must be a **UUID v4** generated client-side at creation time. It never changes. It is the idempotency key for all network requests, so a retried push cannot create duplicates on the server.
 - `lastModified` must be updated to `System.currentTimeMillis()` every time any field changes. The default conflict resolver uses this to pick the winner.
-- `isDeleted` enables **soft deletes**. Never remove a row from the database directly — set `isDeleted = true` and let SyncEngine push the tombstone to the server.
+- `isDeleted` enables **soft deletes** (tombstones). Never remove a row from the database directly — set `isDeleted = true` and let SyncEngine push the tombstone to the server. The local row is hard-deleted only after the server confirms it. This guarantees deletions are never lost while offline.
 
 ### 2. The sync lifecycle
 
@@ -91,8 +222,8 @@ Every entity moves through a defined state machine:
 
 ```
 PENDING ──► SYNCING ──► SYNCED
-                ├──► FAILED    (retried with backoff → PENDING)
-                └──► CONFLICT  (resolved by ConflictResolver → PENDING)
+                ├──► FAILED    (re-queued next run)
+                └──► CONFLICT  (resolved by ConflictResolver → PENDING → pushed back)
 ```
 
 `PENDING` is the starting state for any new or modified entity. The library manages all transitions — your app code never writes `syncState` directly.
@@ -113,23 +244,19 @@ An adapter **never throws** — it maps every outcome onto a `NetworkResult` bra
 
 ```kotlin
 sealed class NetworkResult<out T> {
-    data class Success<out T>(val data: T)              // 2xx — carries the payload
+    data class Success<out T>(val data: T)                    // 2xx — carries the payload
     data class HttpError(val code: Int, val message: String)  // server reached, non-2xx
-    data class NetworkError(val cause: Throwable)       // transport failure — retryable
-    data class UnknownError(val cause: Throwable)       // e.g. a parse failure
+    data class NetworkError(val cause: Throwable)             // transport failure — retryable
+    data class UnknownError(val cause: Throwable)             // e.g. a parse failure
 }
 ```
 
-If your API is Retrofit-based, you do not have to write that mapping yourself —
-`:sync-network-retrofit` provides `RetrofitSyncAdapter`. You keep your own plain, concrete Retrofit
-service (the library never sees your `Retrofit`/`OkHttpClient` or forces a converter on you); you hand
-the adapter three suspend call references returning `retrofit2.Response`, and it does the
-`Response`/exception → `NetworkResult` mapping (including re-throwing cancellation):
+If your API is Retrofit-based, you do not have to write that mapping yourself — `:sync-network-retrofit` provides `RetrofitSyncAdapter`. You keep your own plain Retrofit service (the library never sees your `Retrofit`/`OkHttpClient` and does not force a serialization library on you); you hand the adapter three suspend call references returning `retrofit2.Response`, and it does the `Response`/exception → `NetworkResult` mapping (including re-throwing cancellation):
 
 ```kotlin
 interface NoteApi {
-    @POST("notes/push") suspend fun push(@Body notes: List<Note>): Response<Unit>
-    @GET("notes")       suspend fun pull(@Query("since") since: Long): Response<List<Note>>
+    @POST("notes/push")   suspend fun push(@Body notes: List<Note>): Response<Unit>
+    @GET("notes")         suspend fun pull(@Query("since") since: Long): Response<List<Note>>
     @POST("notes/delete") suspend fun delete(@Body ids: List<String>): Response<Unit>
 }
 
@@ -141,13 +268,11 @@ val adapter = RetrofitSyncAdapter<Note>(
 )
 ```
 
-Mapping: `2xx` → `Success` (pull yields the body, or an empty list on `204`); non-`2xx` → `HttpError`;
-`IOException` → `NetworkError`; anything else (e.g. a converter failure) → `UnknownError`.
+Mapping: `2xx` → `Success` (pull yields the body, or an empty list on `204`); non-`2xx` → `HttpError`; `IOException` → `NetworkError`; anything else (e.g. a converter failure) → `UnknownError`. Auth headers, idempotency headers and retry policy live on **your** `OkHttpClient` — the library is intentionally hands-off there.
 
 ### 4. Conflict resolution
 
-`ConflictResolver<T : SyncableEntity>` is a single-method (`fun`) interface, so a strategy can be
-a lambda or a class. It must be pure — no I/O, no mutation of its arguments.
+`ConflictResolver<T : SyncableEntity>` is a single-method (`fun`) interface, so a strategy can be a lambda or a class. It must be pure — no I/O, no mutation of its arguments.
 
 ```kotlin
 // Last-Write-Wins: the copy with the newer timestamp survives.
@@ -164,11 +289,7 @@ val merge = ConflictResolver<Note> { local, remote ->
 }
 ```
 
-Pass a resolver to `SyncEngine.create(..., resolver = ...)` to enable two-way sync. During a run the
-engine pulls remote changes and, when a locally-pending entity also changed on the server, invokes the
-resolver; the winner is persisted and pushed back so both sides converge. A conflict with **no**
-resolver configured leaves the entity in `SyncState.CONFLICT` and is reported as
-`SyncError.ConflictUnresolvable`. These three strategies are demonstrated end-to-end in the sample app.
+Pass a resolver to `SyncEngine.create(..., resolver = ...)` to enable two-way sync. During a run the engine pulls remote changes and, when a locally-pending entity also changed on the server, invokes the resolver; the winner is persisted `PENDING` and pushed back so both sides converge. A conflict with **no** resolver configured leaves the entity in `SyncState.CONFLICT` and is reported as `SyncError.ConflictUnresolvable`. These three strategies are demonstrated end-to-end in the sample app.
 
 ### 5. Engine results and configuration
 
@@ -189,25 +310,22 @@ sealed class SyncError {
 }
 ```
 
-The engine is configured with a type-safe DSL (all options have defaults, so `SyncEngineConfig {}`
-is valid):
+The engine is configured with a type-safe DSL (all options have defaults, so `SyncEngineConfig {}` is valid):
 
 ```kotlin
 val config = SyncEngineConfig {
-    batchSize = 100                 // default 50  — entities per network round trip
-    maxRetries = 5                  // default 3   — backoff retries before giving up
-    tombstoneRetentionDays = 30     // default 30  — how long deletes are kept locally
+    batchSize = 100                 // default 50   — entities per network round trip
+    maxRetries = 5                  // default 3    — backoff retries before giving up
+    tombstoneRetentionDays = 30     // default 30   — how long failed deletes are kept locally
     logLevel = LogLevel.DEBUG       // default NONE — NONE < ERROR < WARN < INFO < DEBUG
 }
 ```
 
-Java callers use the equivalent builder: `new SyncEngineConfig.Builder().setBatchSize(100).build()`.
+Java callers use the equivalent builder — see [Java interop](#java-interop).
 
 ### 6. Local storage (offline durability)
 
-By default the engine keeps its queue in memory. To make pending work survive process death, give
-it a `LocalSyncStore` — the durable, offline-first queue. `LocalSyncStore` lives in `:sync-core` and
-is framework-free; `:sync-storage-room` provides the Room-backed implementation, `RoomSyncAdapter`.
+By default the engine keeps its queue in memory. To make pending work survive process death, give it a `LocalSyncStore` — the durable, offline-first queue. `LocalSyncStore` lives in `:sync-core` and is framework-free; `:sync-storage-room` provides the Room-backed implementation, `RoomSyncAdapter`.
 
 ```kotlin
 // LocalSyncStore is the engine's view of persistence (in :sync-core):
@@ -223,10 +341,7 @@ interface LocalSyncStore<T : SyncableEntity> {
 }
 ```
 
-Your Room DAO is a **plain `@Dao`** with a `@RawQuery` read and an `@Upsert` write; `RoomSyncAdapter`
-reads state-scoped slices of your entity table through them and writes engine outcomes back. There is
-**no separate queue table** and no generic base DAO to implement — your entity's `syncState` column is
-the single source of truth, and a plain `@Dao` sidesteps Room's KSP limitation with generic DAOs.
+Your Room DAO is a **plain `@Dao`** with a `@RawQuery` read and an `@Upsert` write; `RoomSyncAdapter` reads state-scoped slices of your entity table through them and writes engine outcomes back. There is **no separate queue table** and no generic base DAO to implement — your entity's `syncState` column is the single source of truth, and a plain `@Dao` sidesteps Room's KSP limitation with generic DAOs.
 
 ```kotlin
 @Dao
@@ -249,17 +364,11 @@ val store = RoomSyncAdapter<Note>(
 )
 ```
 
-The store keeps the four `SyncableEntity` columns under their default names (`id`, `syncState`,
-`isDeleted`, `lastModified`); do not rename them with `@ColumnInfo`. `RoomSyncAdapter` validates the
-table name as a SQL identifier and binds every query value (no injection), and
-`purgeExpiredTombstones` hard-deletes failed tombstones past `tombstoneRetentionDays` for GDPR
-erasure hygiene.
+The store keeps the four `SyncableEntity` columns under their default names (`id`, `syncState`, `isDeleted`, `lastModified`); do not rename them with `@ColumnInfo`. `RoomSyncAdapter` validates the table name as a SQL identifier and binds every query value (no injection risk), and `purgeExpiredTombstones` hard-deletes failed tombstones past `tombstoneRetentionDays` for GDPR erasure hygiene.
 
 ### 7. Background sync (WorkManager)
 
-`:sync-workmanager` runs sync automatically in the background via `WorkManagerSyncScheduler`, an
-implementation of the framework-free `SyncScheduler` interface. Create it once (typically in your
-`Application`) with a provider for your engine, and WorkManager is kept entirely out of your code:
+`:sync-workmanager` runs sync automatically in the background via `WorkManagerSyncScheduler`, an implementation of the framework-free `SyncScheduler` interface. Create it once (typically in your `Application`) with a provider for your engine, and WorkManager is kept entirely out of your code:
 
 ```kotlin
 interface SyncScheduler {
@@ -271,65 +380,45 @@ val scheduler = WorkManagerSyncScheduler(context, engineProvider = { engine })
 scheduler.schedulePeriodicSync()   // every 15 min (WorkManager's minimum), when online
 ```
 
-The worker carries no payload — only WorkManager's own job id, never tokens or entity data. The
-default cadence is 15 minutes (WorkManager's minimum for periodic work); pass `intervalMinutes` to
-change it.
+The worker carries no payload — only WorkManager's own job id, never tokens or entity data. The default cadence is 15 minutes (WorkManager's minimum for periodic work); pass `intervalMinutes` to change it (values below 15 are coerced up).
 
 ### 8. Debug dashboard (Compose)
 
-`:sync-ui-dashboard` is a **debug-only** Jetpack Compose screen showing live sync status: current
-state, last-sync time, pending / failed / conflict counts, last error, and a "Sync now" button. Add
-it with `debugImplementation` so it never ships in release builds.
+`:sync-ui-dashboard` is a **debug-only** Jetpack Compose screen showing live sync status: current state, last-sync time, pending / failed / conflict counts, last error, and a "Sync now" button. Add it with `debugImplementation` so it never ships in release builds.
 
-Embed `SyncDashboardRoute` in your own screen, or launch the ready-made `SyncDashboardActivity` from a
-debug menu. The activity reads a state source you install once:
+Embed `SyncDashboardRoute` in your own screen, or launch the ready-made `SyncDashboardActivity` from a debug menu. The activity reads a state source you install once:
 
 ```kotlin
 // Debug build only — build a StateFlow<SyncDashboardState> from your engine + store:
-SyncDashboard.install(state = dashboardState, onTriggerSync = { scope.launch { engine.triggerSync() } })
+SyncDashboard.install(
+    state = dashboardState,
+    onTriggerSync = { scope.launch { engine.triggerSync() } },
+)
 // ...then launch it:
 startActivity(Intent(context, SyncDashboardActivity::class.java))
 ```
 
-The dashboard depends only on `:sync-core` — it observes state through the public interfaces and never
-touches Room or WorkManager directly.
+The dashboard depends only on `:sync-core` — it observes state through the public interfaces and never touches Room or WorkManager directly.
 
 ---
 
-## Quick start
+## Quick start (5 steps)
 
 ### Step 1 — Add dependencies
 
-```kotlin
-// settings.gradle.kts — if consuming from local Maven
-includeBuild("../Sync-Engine-Library")
-
-// app/build.gradle.kts
-dependencies {
-    implementation("io.github.prathamesh2640.sync:sync-core:1.0.0")
-    implementation("io.github.prathamesh2640.sync:sync-storage-room:1.0.0")
-    implementation("io.github.prathamesh2640.sync:sync-network-retrofit:1.0.0")
-
-    // Debug builds only — never ship the dashboard in production
-    debugImplementation("io.github.prathamesh2640.sync:sync-ui-dashboard:1.0.0")
-}
-```
+See [Install](#install). Minimum for a working setup: `:sync-core` + `:sync-storage-room` + `:sync-network-retrofit`. Add `:sync-workmanager` for background sync and `debugImplementation` of `:sync-ui-dashboard` for a diagnostic screen.
 
 ### Step 2 — Make your entity implement `SyncableEntity`
 
-See the example in **section 1** above.
+See the example in [How it works § 1](#1-the-entity-contract).
 
 ### Step 3 — Implement your network adapter
 
-See the `SyncNetworkAdapter` example in **section 3** above. If you use Retrofit, add
-`:sync-network-retrofit` and wrap your service with `RetrofitSyncAdapter` instead of writing the
-mapping by hand (also shown in section 3).
+See the `SyncNetworkAdapter` example in [How it works § 3](#3-network-adapter). If you use Retrofit, add `:sync-network-retrofit` and wrap your service with `RetrofitSyncAdapter` instead of writing the mapping by hand.
 
 ### Step 4 — Create the engine and sync
 
-The engine is created from its collaborators — **no Android `Context` is required**, which keeps
-`:sync-core` framework-free and unit-testable. Construction is cheap and does no I/O; nothing syncs
-until you call `triggerSync()`.
+The engine is created from its collaborators — **no Android `Context` is required**, which keeps `:sync-core` framework-free and unit-testable. Construction is cheap and does no I/O; nothing syncs until you call `triggerSync()`.
 
 ```kotlin
 val engine: SyncEngine = SyncEngine.create(
@@ -339,7 +428,7 @@ val engine: SyncEngine = SyncEngine.create(
         db, tableName = "notes",
         rawQuery = db.noteDao()::rawQuery, upsert = db.noteDao()::upsertAll,
     ),
-    resolver = ConflictResolver { local, remote ->           // enable two-way sync + conflicts
+    resolver = ConflictResolver { local, remote ->            // enable two-way sync + conflicts
         if (local.lastModified >= remote.lastModified) local else remote
     },
 )
@@ -357,16 +446,11 @@ when (val result = engine.triggerSync()) {
 }
 ```
 
-`triggerSync()` is safe to call from any dispatcher and is **single-flight**: if a run is already in
-progress, a concurrent call is a no-op returning `Success(0, 0)` rather than starting a second run.
-Each item in a batch is pushed independently, so one item's failure never aborts the others — the run
-reports `PartialFailure` instead.
+`triggerSync()` is safe to call from any dispatcher and is **single-flight**: if a run is already in progress, a concurrent call is a no-op returning `Success(0, 0)` rather than starting a second run. Each item in a batch is pushed independently, so one item's failure never aborts the others — the run reports `PartialFailure` instead.
 
 ### Step 5 — Release the engine
 
-`SyncEngine` is `Closeable`. Call `close()` (or use `use { }`) when you are done to cancel its
-coroutine scope — this prevents leaked coroutines in the host process. A closed engine returns
-`SyncResult.Failure` from any further `triggerSync()` call.
+`SyncEngine` is `Closeable`. Call `close()` (or use `use { }`) when you are done to cancel its coroutine scope — this prevents leaked coroutines in the host process. A closed engine returns `SyncResult.Failure` from any further `triggerSync()` call.
 
 ```kotlin
 engine.close()
@@ -378,15 +462,125 @@ SyncEngine.create(adapter).use { engine ->
 
 ---
 
+## Java interop
+
+Every public symbol has been annotated so Java callers get idiomatic APIs.
+
+**Building a config:**
+```java
+SyncEngineConfig config = new SyncEngineConfig.Builder()
+    .setBatchSize(100)
+    .setMaxRetries(5)
+    .setTombstoneRetentionDays(30)
+    .setLogLevel(LogLevel.DEBUG)
+    .build();
+```
+
+**Creating the engine:**
+```java
+SyncEngine engine = SyncEngine.create(myAdapter, config, myStore, myResolver);
+```
+
+**Calling `suspend` functions** requires Kotlin coroutines interop (`kotlinx-coroutines-android`); wrap the call with `BuildersKt.runBlocking` or launch it from a `CoroutineScope` obtained via `CoroutineScopeKt.CoroutineScope`. Most Java-first apps will find it easier to expose a thin Kotlin wrapper around `triggerSync()`.
+
+---
+
+## ProGuard / R8
+
+Nothing to add. Every library module ships a `consumer-rules.pro` inside its AAR that R8 automatically merges into your app's shrinker configuration. It keeps every public symbol the engine relies on reflectively (Room-generated `_Impl`, Retrofit reflection, WorkManager's worker constructor, sealed/enum names). Your host-app `proguard-rules.pro` does not need any SyncEngine-specific keeps.
+
+---
+
+## Testing your integration
+
+The library is validated by **127 automated tests** across all six modules — all pass on the JVM (no emulator required for library modules).
+
+| Module | Tests | Where |
+|---|---|---|
+| `:sync-core` | 98 (state machine, queue, engine, pull/push/flow) | JVM |
+| `:sync-storage-room` | 9 (Robolectric + real Room in-memory) | JVM |
+| `:sync-network-retrofit` | 7 (MockWebServer) | JVM |
+| `:sync-workmanager` | 5 (`WorkManagerTestInitHelper` + Robolectric) | JVM |
+| `:sync-ui-dashboard` | 2 (state) | JVM |
+| `:sample-app` | 6 (resolvers, fake API) | JVM |
+
+Run everything: `./gradlew test`. See [SETUP.md](SETUP.md) for the full developer setup.
+
+For your own integration, the simplest smoke test is: seed one row locally in `PENDING`, call `engine.triggerSync()`, and assert the row is now `SYNCED` (or that your adapter's push was called with the expected body). The sample app does exactly this.
+
+---
+
+## FAQ
+
+**Do I have to use Room?**
+No — `:sync-storage-room` is optional. `LocalSyncStore` is framework-free; you can back it with SQLDelight, DataStore, a JSON file, or a pure in-memory map. Only the four sync columns (`id`, `lastModified`, `syncState`, `isDeleted`) need to be persistable somewhere.
+
+**Do I have to use Retrofit?**
+No — `:sync-network-retrofit` is optional. `SyncNetworkAdapter` has three `suspend` methods; implement them against Ktor, OkHttp, gRPC, whatever. The Retrofit module is just a convenience for the most common case.
+
+**What if I don't run without a network at all?**
+Then you probably do not need this library — a plain Retrofit service is enough. SyncEngine's value is durability under intermittent connectivity.
+
+**Does the engine own a thread pool?**
+No — it borrows one. By default it runs on `Dispatchers.Default`; you can inject any `CoroutineDispatcher` through the internal constructor if you need a specific pool. There is one background coroutine per engine and it is cancelled by `close()`.
+
+**Can I have multiple engines?**
+Yes — one engine per entity type is a supported pattern. Each engine has its own queue, state machine, and adapter. Give each a distinct WorkManager unique-work name if you schedule them independently.
+
+**Does `pull` need a real timestamp watermark?**
+The engine passes the `lastModified` of the newest entity it has seen so far. In-memory only — after process death it resets to 0, which triggers a full re-pull. That is safe because `upsert` is idempotent (keyed on `id`).
+
+**How do conflicts get to my resolver?**
+When `pull` returns an entity whose local copy is *not* `SYNCED` (i.e. the user made local changes that have not been accepted by the server), the engine hands `(local, remote)` to your `ConflictResolver` and persists the winner `PENDING`. The next push sends the winner back. If no resolver is configured, the local row is marked `CONFLICT` and reported.
+
+**Is push atomic?**
+Per-item, yes — each item is a separate `push([one])` call so one item's failure never blocks the others. If you want batched pushes with all-or-nothing semantics, batch them yourself and treat the whole batch as a single `SyncableEntity`.
+
+**How do I encrypt the local database?**
+Room supports SQLCipher via `SupportFactory`; wire it in when you build the `RoomDatabase`. SyncEngine talks to Room through the ordinary `RoomDatabase` handle, so encryption is transparent to it.
+
+---
+
 ## Implementation status
 
 | Capability | Status |
 |---|---|
-| Public API contracts (entity, results, adapter, config, engine) | ✅ Available |
-| `SyncEngine.create()` + `triggerSync()` + `close()` | ✅ Available |
-| Guarded state machine + thread-safe queue + single-flight, isolated batch push | ✅ Available |
-| Room-backed durable storage (`LocalSyncStore` / `RoomSyncAdapter`) | ✅ Available |
-| Retrofit network adapter (`RetrofitSyncAdapter` in `:sync-network-retrofit`) | ✅ Available |
-| Two-way pull + conflict resolution + tombstone delete-confirmation during a run | ✅ Available |
-| Background scheduling (`WorkManagerSyncScheduler` in `:sync-workmanager`) | ✅ Available |
-| Debug dashboard (`SyncDashboardActivity` in `:sync-ui-dashboard`) | ✅ Available |
+| Public API contracts (entity, results, adapter, config, engine) | Available |
+| `SyncEngine.create()` + `triggerSync()` + `close()` | Available |
+| Guarded state machine + thread-safe queue + single-flight, isolated batch push | Available |
+| Room-backed durable storage (`LocalSyncStore` / `RoomSyncAdapter`) | Available |
+| Retrofit network adapter (`RetrofitSyncAdapter` in `:sync-network-retrofit`) | Available |
+| Two-way pull + conflict resolution + tombstone delete-confirmation during a run | Available |
+| Background scheduling (`WorkManagerSyncScheduler` in `:sync-workmanager`) | Available |
+| Debug dashboard (`SyncDashboardActivity` in `:sync-ui-dashboard`) | Available |
+
+**Build status:** all 5 library modules produce debug + release AARs; sample app produces a runnable APK. 127/127 unit tests pass.
+
+---
+
+## Versioning & stability
+
+The library follows **Semantic Versioning**:
+- **Major** (`X.0.0`) — source-breaking public-API changes (e.g. new branch on a sealed class).
+- **Minor** (`0.X.0`) — additive public API (new methods, new modules, new optional parameters).
+- **Patch** (`0.0.X`) — bug fixes, internal changes, no public-API impact.
+
+Anything under `internal` visibility, in an `internal` package, or in the sample app is **not** covered by the compatibility contract. Once `1.0.0` is tagged, breaking changes across the public surface require a major bump.
+
+---
+
+## License
+
+SyncEngine is licensed under the **Apache License, Version 2.0** — see [`LICENSE`](LICENSE) and [`NOTICE`](NOTICE) at the repository root.
+
+```
+Copyright 2026 Prathamesh
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+```
+
+You may use, modify, and redistribute this library — including in commercial software — as long as you preserve the copyright notice, state significant changes, and include a copy of the license with your distribution. The license also grants you a patent license from every contributor.
