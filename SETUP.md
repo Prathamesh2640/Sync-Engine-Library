@@ -195,8 +195,6 @@ dependencies {
 | `./gradlew :sync-core:test` | Test a single module |
 | `./gradlew clean` | Wipe all build output |
 | `./gradlew dependencies` | Print full dependency tree |
-| `./gradlew apiCheck` | Verify no accidental public API changes (Binary Compatibility Validator) |
-| `./gradlew apiDump` | Regenerate the committed `.api` files after an intentional API change |
 | `./gradlew publishToMavenLocal` | Install to local Maven cache |
 | `./gradlew lint` | Run Android lint on all modules |
 
@@ -246,11 +244,6 @@ backend (Room 2.7 supports KSP2). Keep Room ≥ 2.7 here; do not add `ksp.useKSP
 
 **Room compile error `Cannot find symbol @Dao`**
 → `:sync-storage-room` uses KSP for Room codegen (migrated in Feature F-09). The `com.google.devtools.ksp` plugin (version `2.1.0-1.0.29`, tracking Kotlin 2.1.0) is declared apply-false at the root and applied via `alias(libs.plugins.ksp)` in the module; Room codegen is wired as `ksp(libs.androidx.room.compiler)` for `main` and `kspTest(...)` for the Robolectric JVM tests — never `annotationProcessor`. KSP needs no separate SDK install; Gradle resolves it automatically. If codegen seems stale, run `./gradlew clean`.
-
-**`apiCheck` fails with "No .api file found" / a large diff on first run**
-→ The Binary Compatibility Validator (F-15) compares against committed `.api` dumps. Generate them once
-with `./gradlew apiDump`, review the produced `*/api/*.api` files, and commit them. After that, `apiCheck`
-passes until the public API changes — at which point re-run `apiDump` and commit the update in the same PR.
 
 **Compose build error about the Compose compiler / Kotlin version mismatch**
 → The Compose modules (`:sync-ui-dashboard`, `:sample-app`) apply `org.jetbrains.kotlin.plugin.compose`

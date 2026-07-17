@@ -34,9 +34,6 @@ lifecycleRuntimeCompose = "2.8.7"
 composeCompiler = "2.1.0"
 # Turbine — Flow-testing helper for StateFlow emission assertions (F-15).
 turbine = "1.1.0"
-# JetBrains Binary Compatibility Validator — tracks the public API via committed
-# .api dumps; `apiCheck` fails CI on any accidental public-API change (F-15).
-binaryCompatibilityValidator = "0.16.3"
 
 [libraries]
 # AndroidX — used in Android modules only (NOT in :sync-core)
@@ -94,5 +91,3 @@ android-library = { id = "com.android.library", version.ref = "agp" }
 ksp = { id = "com.google.devtools.ksp", version.ref = "ksp" }
 # Compose compiler — applied in Compose modules (:sync-ui-dashboard, :sample-app).
 compose-compiler = { id = "org.jetbrains.kotlin.plugin.compose", version.ref = "composeCompiler" }
-# Binary Compatibility Validator — applied once at the root project.
-binary-compatibility-validator = { id = "org.jetbrains.kotlinx.binary-compatibility-validator", version.ref = "binaryCompatibilityValidator" }
