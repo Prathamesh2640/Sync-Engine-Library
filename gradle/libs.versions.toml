@@ -21,6 +21,22 @@ androidxTestCore = "1.5.0"
 # Robolectric — runs Room DAO/adapter tests on the JVM (no device/emulator),
 # so :sync-storage-room tests execute under testDebugUnitTest and in CI.
 robolectric = "4.14.1"
+# WorkManager — used only in :sync-workmanager for periodic background sync.
+work = "2.10.0"
+# Jetpack Compose — :sync-ui-dashboard (debug dashboard) + :sample-app UI.
+# The BOM aligns every Compose artifact; individual libs omit versions.
+composeBom = "2024.10.00"
+activityCompose = "1.9.3"
+lifecycleRuntimeCompose = "2.8.7"
+# Compose compiler Gradle plugin — must track the Kotlin version (2.1.0). With
+# AGP 9 built-in Kotlin, this applies the Compose compiler without the standalone
+# Kotlin Android plugin (ADL-005 stays honored).
+composeCompiler = "2.1.0"
+# Turbine — Flow-testing helper for StateFlow emission assertions (F-15).
+turbine = "1.1.0"
+# JetBrains Binary Compatibility Validator — tracks the public API via committed
+# .api dumps; `apiCheck` fails CI on any accidental public-API change (F-15).
+binaryCompatibilityValidator = "0.16.3"
 
 [libraries]
 # AndroidX — used in Android modules only (NOT in :sync-core)
@@ -38,6 +54,22 @@ androidx-room-runtime = { group = "androidx.room", name = "room-runtime", versio
 androidx-room-ktx = { group = "androidx.room", name = "room-ktx", version.ref = "room" }
 androidx-room-compiler = { group = "androidx.room", name = "room-compiler", version.ref = "room" }
 
+# WorkManager — used only in :sync-workmanager. work-testing is a test-only
+# fixture driving SyncWorker via WorkManagerTestInitHelper on the JVM.
+androidx-work-runtime-ktx = { group = "androidx.work", name = "work-runtime-ktx", version.ref = "work" }
+androidx-work-testing = { group = "androidx.work", name = "work-testing", version.ref = "work" }
+
+# Jetpack Compose — versions come from the BOM (androidx-compose-bom).
+androidx-compose-bom = { group = "androidx.compose", name = "compose-bom", version.ref = "composeBom" }
+androidx-compose-foundation = { group = "androidx.compose.foundation", name = "foundation" }
+androidx-compose-ui = { group = "androidx.compose.ui", name = "ui" }
+androidx-compose-ui-graphics = { group = "androidx.compose.ui", name = "ui-graphics" }
+androidx-compose-ui-tooling = { group = "androidx.compose.ui", name = "ui-tooling" }
+androidx-compose-ui-tooling-preview = { group = "androidx.compose.ui", name = "ui-tooling-preview" }
+androidx-compose-material3 = { group = "androidx.compose.material3", name = "material3" }
+androidx-activity-compose = { group = "androidx.activity", name = "activity-compose", version.ref = "activityCompose" }
+androidx-lifecycle-runtime-compose = { group = "androidx.lifecycle", name = "lifecycle-runtime-compose", version.ref = "lifecycleRuntimeCompose" }
+
 # Retrofit — used only in :sync-network-retrofit (main uses retrofit for Response/
 # HTTP mapping; the gson converter + mockwebserver are test-only fixtures).
 retrofit = { group = "com.squareup.retrofit2", name = "retrofit", version.ref = "retrofit" }
@@ -46,6 +78,7 @@ okhttp-mockwebserver = { group = "com.squareup.okhttp3", name = "mockwebserver",
 
 # Testing
 junit = { group = "junit", name = "junit", version.ref = "junit" }
+turbine = { group = "app.cash.turbine", name = "turbine", version.ref = "turbine" }
 androidx-junit = { group = "androidx.test.ext", name = "junit", version.ref = "junitVersion" }
 androidx-espresso-core = { group = "androidx.test.espresso", name = "espresso-core", version.ref = "espressoCore" }
 # JVM Room test runtime: ApplicationProvider (test-core) + Robolectric, run under
@@ -59,3 +92,7 @@ android-library = { id = "com.android.library", version.ref = "agp" }
 # KSP — Room annotation processing (replaces annotationProcessor, ADL-003).
 # Applied in :sync-storage-room only; declared apply-false at the root.
 ksp = { id = "com.google.devtools.ksp", version.ref = "ksp" }
+# Compose compiler — applied in Compose modules (:sync-ui-dashboard, :sample-app).
+compose-compiler = { id = "org.jetbrains.kotlin.plugin.compose", version.ref = "composeCompiler" }
+# Binary Compatibility Validator — applied once at the root project.
+binary-compatibility-validator = { id = "org.jetbrains.kotlinx.binary-compatibility-validator", version.ref = "binaryCompatibilityValidator" }

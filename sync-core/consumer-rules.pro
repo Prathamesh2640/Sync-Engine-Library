@@ -39,6 +39,10 @@
 # public contract so R8 does not rename members implementors override.
 -keep public interface io.github.prathamesh2640.sync.core.store.LocalSyncStore { *; }
 
+# SyncScheduler — the background-scheduling seam implemented by
+# :sync-workmanager's WorkManagerSyncScheduler.
+-keep public interface io.github.prathamesh2640.sync.core.scheduler.SyncScheduler { *; }
+
 # SyncEngine.create(...) factory lives on the interface's companion; keep the
 # generated static entry point and the companion so the DSL is reachable.
 -keep class io.github.prathamesh2640.sync.core.engine.SyncEngine$Companion { *; }
