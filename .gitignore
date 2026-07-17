@@ -118,11 +118,6 @@ jacoco/
 node_modules/
 npm-debug.log*
 
-# ─── Boilerplate files — removed from git, suppressed from git status ─────────
-# Android Studio regenerates these; they are never committed to this project.
-sample-app/src/test/java/com/android/syncengine/ExampleUnitTest.kt
-sample-app/src/androidTest/java/com/android/syncengine/ExampleInstrumentedTest.kt
-
 # ─── Developer-only working files (not for consumers) ────────────────────────
 # Feature checklist — personal dev tracker, not part of the library
 FEATURES.md
@@ -132,5 +127,3 @@ memory.md
 PLAN.md
 # Skill update staging folder
 skill-update/
-memory.md
-memory.md
