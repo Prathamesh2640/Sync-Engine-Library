@@ -17,8 +17,12 @@ class NoteResolverTest {
         val local = note(ts = 5, body = "local")
         val remote = note(ts = 10, body = "remote")
 
+        // remote is newer → remote wins
         assertEquals(remote, NoteResolver.LAST_WRITE_WINS.resolver.resolve(local, remote))
-        assertEquals(local, NoteResolver.LAST_WRITE_WINS.resolver.resolve(local.copy(lastModified = 20), remote))
+
+        // local is newer → local wins (compare against the same newer instance)
+        val newerLocal = local.copy(lastModified = 20)
+        assertEquals(newerLocal, NoteResolver.LAST_WRITE_WINS.resolver.resolve(newerLocal, remote))
     }
 
     @Test

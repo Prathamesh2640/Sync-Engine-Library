@@ -37,4 +37,6 @@ dependencies {
     // Unit tests — run on JVM, no emulator needed for pure Kotlin logic
     testImplementation(libs.junit)
     testImplementation(libs.kotlinx.coroutines.test)
+    // Turbine — asserts on StateFlow emissions (engine state transitions).
+    testImplementation(libs.turbine)
 }
