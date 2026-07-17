@@ -9,6 +9,10 @@ espressoCore = "3.5.1"
 appcompat = "1.6.1"
 material = "1.10.0"
 room = "2.7.1"
+# Retrofit — used only in :sync-network-retrofit (OkHttp comes transitively).
+retrofit = "2.11.0"
+# OkHttp MockWebServer — test-only, exercises the adapter over real HTTP on the JVM.
+okhttp = "4.12.0"
 # KSP release string is "<kotlin>-<ksp>"; must track the Kotlin version (2.1.0).
 ksp = "2.1.0-1.0.29"
 # AndroidX Test — provides ApplicationProvider + the AndroidJUnit4 runner that
@@ -33,6 +37,12 @@ kotlinx-coroutines-test = { group = "org.jetbrains.kotlinx", name = "kotlinx-cor
 androidx-room-runtime = { group = "androidx.room", name = "room-runtime", version.ref = "room" }
 androidx-room-ktx = { group = "androidx.room", name = "room-ktx", version.ref = "room" }
 androidx-room-compiler = { group = "androidx.room", name = "room-compiler", version.ref = "room" }
+
+# Retrofit — used only in :sync-network-retrofit (main uses retrofit for Response/
+# HTTP mapping; the gson converter + mockwebserver are test-only fixtures).
+retrofit = { group = "com.squareup.retrofit2", name = "retrofit", version.ref = "retrofit" }
+retrofit-converter-gson = { group = "com.squareup.retrofit2", name = "converter-gson", version.ref = "retrofit" }
+okhttp-mockwebserver = { group = "com.squareup.okhttp3", name = "mockwebserver", version.ref = "okhttp" }
 
 # Testing
 junit = { group = "junit", name = "junit", version.ref = "junit" }

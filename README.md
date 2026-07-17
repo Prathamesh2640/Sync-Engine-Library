@@ -118,6 +118,30 @@ sealed class NetworkResult<out T> {
 }
 ```
 
+If your API is Retrofit-based, you do not have to write that mapping yourself —
+`:sync-network-retrofit` provides `RetrofitSyncAdapter`. You keep your own plain, concrete Retrofit
+service (the library never sees your `Retrofit`/`OkHttpClient` or forces a converter on you); you hand
+the adapter three suspend call references returning `retrofit2.Response`, and it does the
+`Response`/exception → `NetworkResult` mapping (including re-throwing cancellation):
+
+```kotlin
+interface NoteApi {
+    @POST("notes/push") suspend fun push(@Body notes: List<Note>): Response<Unit>
+    @GET("notes")       suspend fun pull(@Query("since") since: Long): Response<List<Note>>
+    @POST("notes/delete") suspend fun delete(@Body ids: List<String>): Response<Unit>
+}
+
+val api = retrofit.create(NoteApi::class.java)
+val adapter = RetrofitSyncAdapter<Note>(
+    pushCall = api::push,
+    pullCall = api::pull,
+    deleteCall = api::delete,
+)
+```
+
+Mapping: `2xx` → `Success` (pull yields the body, or an empty list on `204`); non-`2xx` → `HttpError`;
+`IOException` → `NetworkError`; anything else (e.g. a converter failure) → `UnknownError`.
+
 ### 4. Conflict resolution
 
 `ConflictResolver<T : SyncableEntity>` is a single-method (`fun`) interface, so a strategy can be
@@ -248,7 +272,9 @@ See the example in **section 1** above.
 
 ### Step 3 — Implement your network adapter
 
-See the `SyncNetworkAdapter` example in **section 3** above.
+See the `SyncNetworkAdapter` example in **section 3** above. If you use Retrofit, add
+`:sync-network-retrofit` and wrap your service with `RetrofitSyncAdapter` instead of writing the
+mapping by hand (also shown in section 3).
 
 ### Step 4 — Create the engine and sync
 
@@ -307,7 +333,7 @@ SyncEngine.create(adapter).use { engine ->
 | `SyncEngine.create()` + `triggerSync()` + `close()` | ✅ Available |
 | Guarded state machine + thread-safe queue + single-flight, isolated batch push | ✅ Available |
 | Room-backed durable storage (`LocalSyncStore` / `RoomSyncAdapter` / `BaseSyncDao`) | ✅ Available |
-| Retrofit network adapter (`:sync-network-retrofit`) | 🔜 Next commit |
+| Retrofit network adapter (`RetrofitSyncAdapter` in `:sync-network-retrofit`) | ✅ Available |
 | Two-way pull + conflict resolution during a run | 🔜 With the network/background commits |
 
 The engine now drains a durable `LocalSyncStore` when given one and persists each entity's outcome;
