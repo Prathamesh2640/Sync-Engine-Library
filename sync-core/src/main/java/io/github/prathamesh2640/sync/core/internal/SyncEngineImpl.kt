@@ -8,6 +8,7 @@ import io.github.prathamesh2640.sync.core.model.SyncState
 import io.github.prathamesh2640.sync.core.model.SyncableEntity
 import io.github.prathamesh2640.sync.core.result.SyncError
 import io.github.prathamesh2640.sync.core.result.SyncResult
+import io.github.prathamesh2640.sync.core.store.LocalSyncStore
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
@@ -36,11 +37,18 @@ import java.util.concurrent.atomic.AtomicBoolean
  * item's failure never cancels its siblings (F-08). Failed items are re-queued
  * for the next run.
  *
+ * ### Storage-backed queue (Commit 7)
+ * When constructed with a [LocalSyncStore], each run seeds the in-memory queue
+ * from [LocalSyncStore.getPending] (so pending work survives process death),
+ * writes every entity's outcome back to the store (`SYNCED` on success, `FAILED`
+ * on a rejected push), and purges expired tombstones once per run (SEC-10).
+ * Constructed without a store, the queue is fed internally/in tests exactly as
+ * before — the store path is fully additive and defaulted off.
+ *
  * ### What is intentionally deferred
- * Pull/merge and conflict resolution, and the storage-backed population of the
- * queue, arrive with the Room module (Commit 7). Until then the queue is fed
- * internally/in tests, [SyncResult.Success.conflictCount] is always `0`, and no
- * [io.github.prathamesh2640.sync.core.adapter.ConflictResolver] is wired.
+ * Pull/merge and conflict resolution remain deferred:
+ * [SyncResult.Success.conflictCount] is always `0` and no
+ * [io.github.prathamesh2640.sync.core.adapter.ConflictResolver] is wired yet.
  *
  * ### Concurrency & lifecycle guarantees
  * - **Single in-flight run** (SEC-11): [triggerSync] is guarded by [syncMutex];
@@ -60,6 +68,10 @@ import java.util.concurrent.atomic.AtomicBoolean
  *   fresh in-memory [SyncQueue].
  * @param stateMachine the guarded state holder. Injectable for tests; defaults
  *   to a fresh machine starting at [SyncState.PENDING].
+ * @param store optional durable local store. When non-null the engine seeds its
+ *   queue from it and writes outcomes back; when null (the default) the engine
+ *   behaves exactly as the pre-storage push-only implementation. Declared last
+ *   so existing positional constructions stay source-compatible.
  */
 internal class SyncEngineImpl<T : SyncableEntity>(
     private val adapter: SyncNetworkAdapter<T>,
@@ -67,6 +79,7 @@ internal class SyncEngineImpl<T : SyncableEntity>(
     dispatcher: CoroutineDispatcher = Dispatchers.Default,
     private val queue: SyncQueue<T> = SyncQueue(),
     private val stateMachine: SyncStateMachine = SyncStateMachine(),
+    private val store: LocalSyncStore<T>? = null,
 ) : SyncEngine {
 
     private val engineScope = CoroutineScope(SupervisorJob() + dispatcher)
@@ -101,6 +114,11 @@ internal class SyncEngineImpl<T : SyncableEntity>(
             // failure instead of crashing the caller. Otherwise the *caller's*
             // coroutine was cancelled: honour structured concurrency and rethrow.
             if (closed.get()) closedFailure() else throw cancellation
+        } catch (throwable: Throwable) {
+            // SEC-12: the LocalSyncStore contract forbids throwing, but defend the
+            // boundary — a misbehaving store must not crash the host app. Surface
+            // it as a clean Failure carrying the cause.
+            SyncResult.Failure(SyncError.StorageError(throwable))
         } finally {
             syncMutex.unlock()
         }
@@ -115,9 +133,16 @@ internal class SyncEngineImpl<T : SyncableEntity>(
     private suspend fun runOnce(): SyncResult {
         moveToSyncing()
 
+        // Storage-backed engines (Commit 7): seed the in-memory queue from the
+        // durable store so pending work survives process death. Coalescing by id
+        // makes re-seeding an already-queued entity harmless. No-op without a store.
+        store?.let { queue.enqueueAll(it.getPending()) }
+
         val batch = queue.drainBatch(config.batchSize)
         if (batch.isEmpty()) {
             stateMachine.transitionTo(SyncState.SYNCED)
+            // Nothing to push, but still honour tombstone retention (SEC-10).
+            store?.purgeExpiredTombstones(config.tombstoneRetentionDays)
             return SyncResult.Success(syncedCount = 0, conflictCount = 0)
         }
 
@@ -134,6 +159,22 @@ internal class SyncEngineImpl<T : SyncableEntity>(
 
         // Re-queue failed items so they are retried on the next run.
         failures.forEach { queue.enqueue(it.first) }
+
+        // Persist each entity's outcome to the durable store (Commit 7): SYNCED
+        // for accepted items, FAILED for rejected ones. The store is the single
+        // source of truth for entity state; the in-memory re-queue above drives
+        // the immediate retry. No-op without a store.
+        store?.let { s ->
+            val failedIds = failures.mapTo(HashSet(failures.size)) { it.first.id }
+            for ((entity, _) in outcomes) {
+                s.markSyncState(
+                    entity.id,
+                    if (entity.id in failedIds) SyncState.FAILED else SyncState.SYNCED,
+                )
+            }
+            // Tombstone retention hygiene, once per run (SEC-10 / GDPR).
+            s.purgeExpiredTombstones(config.tombstoneRetentionDays)
+        }
 
         val errors = failures.map { it.second.toSyncError() }
 

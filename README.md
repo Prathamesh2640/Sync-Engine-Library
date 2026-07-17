@@ -29,7 +29,7 @@ SyncEngine handles the hard parts of offline-first development: queueing local w
 | Android minSdk | 24 (Android 7.0) |
 | Kotlin | 2.1.0 |
 | Coroutines | 1.8.1 |
-| Room | 2.6.1 (optional — only if using `:sync-storage-room`) |
+| Room | 2.7.1 (optional — only if using `:sync-storage-room`) |
 | Retrofit | 2.x (optional — only if using `:sync-network-retrofit`) |
 
 ---
@@ -174,6 +174,53 @@ val config = SyncEngineConfig {
 
 Java callers use the equivalent builder: `new SyncEngineConfig.Builder().setBatchSize(100).build()`.
 
+### 6. Local storage (offline durability)
+
+By default the engine keeps its queue in memory. To make pending work survive process death, give
+it a `LocalSyncStore` — the durable, offline-first queue. `LocalSyncStore` lives in `:sync-core` and
+is framework-free; `:sync-storage-room` provides the Room-backed implementation, `RoomSyncAdapter`.
+
+```kotlin
+// LocalSyncStore is the engine's view of persistence (in :sync-core):
+interface LocalSyncStore<T : SyncableEntity> {
+    suspend fun getPending(): List<T>
+    suspend fun getByState(state: SyncState): List<T>
+    suspend fun getById(id: String): T?
+    suspend fun getTombstones(): List<T>
+    suspend fun markSyncState(id: String, state: SyncState)
+    suspend fun hardDelete(ids: List<String>)
+    suspend fun purgeExpiredTombstones(retentionDays: Int): Int
+}
+```
+
+Your Room DAO is a **plain `@Dao`** with a `@RawQuery` method; `RoomSyncAdapter` reads state-scoped
+slices of your entity table through it and writes engine outcomes back. There is **no separate queue
+table** and no generic base DAO to implement — your entity's `syncState` column is the single source
+of truth, and a plain `@Dao` sidesteps Room's KSP limitation with generic DAOs.
+
+```kotlin
+@Dao
+interface NoteDao {
+    @Upsert   suspend fun upsert(entity: Note)
+    @Delete   suspend fun delete(entity: Note)
+    @RawQuery suspend fun rawQuery(query: SupportSQLiteQuery): List<Note>
+}
+
+@Database(entities = [Note::class], version = 1)
+abstract class AppDatabase : SyncDatabase() {   // SyncDatabase is optional; any RoomDatabase works
+    abstract fun noteDao(): NoteDao
+}
+
+val db = Room.databaseBuilder(context, AppDatabase::class.java, "app.db").build()
+val store = RoomSyncAdapter<Note>(database = db, tableName = "notes", rawQuery = db.noteDao()::rawQuery)
+```
+
+The store keeps the four `SyncableEntity` columns under their default names (`id`, `syncState`,
+`isDeleted`, `lastModified`); do not rename them with `@ColumnInfo`. `RoomSyncAdapter` validates the
+table name as a SQL identifier and binds every query value (no injection), and
+`purgeExpiredTombstones` hard-deletes failed tombstones past `tombstoneRetentionDays` for GDPR
+erasure hygiene.
+
 ---
 
 ## Quick start
@@ -213,6 +260,7 @@ until you call `triggerSync()`.
 val engine: SyncEngine = SyncEngine.create(
     adapter = MyApiAdapter(api),
     config = SyncEngineConfig { batchSize = 100 },
+    store = RoomSyncAdapter(db, tableName = "notes", rawQuery = db.noteDao()::rawQuery), // durable queue
 )
 
 // Observe the engine's state reactively (e.g. from a ViewModel):
@@ -251,16 +299,17 @@ SyncEngine.create(adapter).use { engine ->
 
 ## Implementation status
 
-`:sync-core` is being built up commit by commit. As of the engine-internals milestone (Commits 5–6):
+`:sync-core` is being built up commit by commit. As of the Room storage milestone (Commit 7):
 
 | Capability | Status |
 |---|---|
 | Public API contracts (entity, results, adapter, config, engine) | ✅ Available |
 | `SyncEngine.create()` + `triggerSync()` + `close()` | ✅ Available |
 | Guarded state machine + thread-safe queue + single-flight, isolated batch push | ✅ Available |
-| Room-backed storage that populates the queue (`:sync-storage-room`) | 🔜 Next commit |
-| Two-way pull + conflict resolution during a run | 🔜 With storage/network commits |
+| Room-backed durable storage (`LocalSyncStore` / `RoomSyncAdapter` / `BaseSyncDao`) | ✅ Available |
+| Retrofit network adapter (`:sync-network-retrofit`) | 🔜 Next commit |
+| Two-way pull + conflict resolution during a run | 🔜 With the network/background commits |
 
-Until the storage adapter lands, the engine syncs the entities placed in its internal queue and
-`Success.conflictCount` is always `0`. The public API above is stable and will not change as those
-capabilities are filled in.
+The engine now drains a durable `LocalSyncStore` when given one and persists each entity's outcome;
+two-way pull and `Success.conflictCount` (still always `0`) arrive with the network commits. The
+public API above is stable and will not change as those capabilities are filled in.

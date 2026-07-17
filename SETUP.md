@@ -102,9 +102,14 @@ Look for `BUILD SUCCESSFUL` and check `*/build/reports/tests/test/index.html` fo
 ### Run tests for a specific module
 ```bash
 ./gradlew :sync-core:test
-./gradlew :sync-storage-room:test
+./gradlew :sync-storage-room:test   # includes the Room adapter tests (Robolectric, no device)
 ./gradlew :sync-network-retrofit:test
 ```
+
+> `:sync-storage-room`'s `RoomSyncAdapter` tests spin up a real in-memory Room
+> database on the JVM via **Robolectric**, so they run under `test` /
+> `testDebugUnitTest` with **no emulator or connected device** — the same way CI
+> runs them. You do not need Section 7 for this module.
 
 ### Run a single test class from Android Studio
 1. Open the test file (e.g., `sync-core/src/test/.../SyncStateTest.kt`)
@@ -117,10 +122,12 @@ The **Run** panel shows green ticks for passing tests and red X for failures wit
 
 ## 7. Run instrumented tests (on emulator)
 
-Instrumented tests need a running emulator or connected device:
+The library modules have **no** instrumented (`androidTest`) tests — the Room
+adapter tests run on the JVM under Robolectric (Section 6). Instrumented tests
+apply only to `:sample-app` and need a running emulator or connected device:
 
 ```bash
-./gradlew :sync-storage-room:connectedAndroidTest
+./gradlew :sample-app:connectedAndroidTest
 ```
 
 Or from Android Studio: right-click the `androidTest` source set → **Run Tests**.
@@ -218,5 +225,16 @@ chmod +x gradlew
 **Tests fail with `No tests found`**
 → Ensure the test class is in `src/test/java/...` (unit tests) not `src/androidTest/java/...` (instrumented tests) and the class is not abstract.
 
+**`Using kotlin.sourceSets DSL to add Kotlin sources is not allowed with built-in Kotlin`**
+→ AGP 9's built-in Kotlin blocks third-party plugins (KSP) from registering generated sources via
+`kotlin.sourceSets`. Fixed once, project-wide, by `android.disallowKotlinSourceSets=false` in
+`gradle.properties` — the documented workaround for KSP + AGP 9 built-in Kotlin. Already set in this repo.
+
+**KSP fails with `unexpected jvm signature V`, or `Cannot query … testedVariantArtifacts`**
+→ On this toolchain (AGP 9 built-in Kotlin + Kotlin 2.1) Room 2.6.x cannot build: the KSP2 backend throws
+`unexpected jvm signature V`, and pinning KSP1 (`ksp.useKSP2=false`) then fails against AGP 9's built-in
+Kotlin with `testedVariantArtifacts … no value`. Resolved by using **Room 2.7.1** with the default KSP2
+backend (Room 2.7 supports KSP2). Keep Room ≥ 2.7 here; do not add `ksp.useKSP2=false`.
+
 **Room compile error `Cannot find symbol @Dao`**
-→ After migrating to KSP (Feature F-09), ensure `id("com.google.devtools.ksp")` plugin is applied in the module's `build.gradle.kts` and the dependency is `ksp(libs.androidx.room.compiler)` not `annotationProcessor`.
+→ `:sync-storage-room` uses KSP for Room codegen (migrated in Feature F-09). The `com.google.devtools.ksp` plugin (version `2.1.0-1.0.29`, tracking Kotlin 2.1.0) is declared apply-false at the root and applied via `alias(libs.plugins.ksp)` in the module; Room codegen is wired as `ksp(libs.androidx.room.compiler)` for `main` and `kspTest(...)` for the Robolectric JVM tests — never `annotationProcessor`. KSP needs no separate SDK install; Gradle resolves it automatically. If codegen seems stale, run `./gradlew clean`.

@@ -5,6 +5,7 @@ import io.github.prathamesh2640.sync.core.internal.SyncEngineImpl
 import io.github.prathamesh2640.sync.core.model.SyncState
 import io.github.prathamesh2640.sync.core.model.SyncableEntity
 import io.github.prathamesh2640.sync.core.result.SyncResult
+import io.github.prathamesh2640.sync.core.store.LocalSyncStore
 import kotlinx.coroutines.flow.StateFlow
 import java.io.Closeable
 
@@ -83,6 +84,7 @@ public interface SyncEngine : Closeable {
          * val engine = SyncEngine.create(
          *     adapter = myNetworkAdapter,
          *     config = SyncEngineConfig { batchSize = 100 },
+         *     store = myRoomSyncAdapter, // optional: durable, offline-first queue
          * )
          * engine.use {
          *     val result = it.triggerSync()
@@ -94,6 +96,12 @@ public interface SyncEngine : Closeable {
          *   directly.
          * @param config tuning parameters. Defaults to [SyncEngineConfig] with
          *   every option at its default.
+         * @param store optional durable [LocalSyncStore] (e.g. `RoomSyncAdapter`
+         *   from `:sync-storage-room`). When supplied, each run seeds its queue
+         *   from storage and writes outcomes back, so pending work survives
+         *   process death. When omitted the engine keeps an in-memory queue only.
+         *   Declared last so existing `create(adapter)` / `create(adapter, config)`
+         *   call sites are unaffected.
          * @return a new engine. Remember to [close] it (or use `use { }`) to
          *   release its coroutine scope.
          */
@@ -102,6 +110,7 @@ public interface SyncEngine : Closeable {
         public fun <T : SyncableEntity> create(
             adapter: SyncNetworkAdapter<T>,
             config: SyncEngineConfig = SyncEngineConfig {},
-        ): SyncEngine = SyncEngineImpl(adapter = adapter, config = config)
+            store: LocalSyncStore<T>? = null,
+        ): SyncEngine = SyncEngineImpl(adapter = adapter, config = config, store = store)
     }
 }

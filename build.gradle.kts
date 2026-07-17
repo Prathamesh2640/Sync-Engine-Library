@@ -4,4 +4,8 @@
 plugins {
     alias(libs.plugins.android.application) apply false
     alias(libs.plugins.android.library) apply false
+    // KSP resolvable in submodules (applied only in :sync-storage-room). Kept
+    // separate from AGP's built-in Kotlin — the standalone Kotlin Android plugin
+    // must never be re-added (ADL-005).
+    alias(libs.plugins.ksp) apply false
 }
