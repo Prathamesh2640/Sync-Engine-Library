@@ -44,7 +44,7 @@ If it does not prompt automatically:
 View → Tool Windows → Gradle → click the Sync button (elephant icon with refresh arrows)
 ```
 
-A successful sync shows no red errors in the **Build** tab and the module tree in the **Project** panel shows all modules: `sync-core`, `sync-storage-room`, `sync-network-retrofit`, `sync-ui-dashboard`, `sample-app`.
+A successful sync shows no red errors in the **Build** tab and the module tree in the **Project** panel shows all modules: `sync-core`, `sync-storage-room`, `sync-network-retrofit`, `sync-workmanager`, `sync-ui-dashboard`, `sample-app`.
 
 **Common sync issues:**
 
@@ -80,12 +80,18 @@ Start it: click the **play ▶** button next to the AVD name.
 
 ## 5. Run the sample-app
 
-> **Note:** sample-app is implemented in Feature F-14. Before that feature is done, running sample-app will show an empty stub activity.
+The sample app is a full Compose notes app wired to the whole library stack (Room store, in-memory
+fake backend, WorkManager scheduling, and — in debug builds — the sync dashboard).
 
 1. In Android Studio, select `sample-app` in the run configuration dropdown (top toolbar)
 2. Select your emulator from the device dropdown
 3. Click **Run ▶** (or `Shift+F10`)
 4. The app installs and launches on the emulator
+
+**Walkthrough:** add notes with **+** (they show `PENDING`) → tap **Sync** (they move to `SYNCED`) →
+toggle **Online** off, edit a note (`PENDING`), tap **Sync** (it goes `FAILED`) → toggle back on and
+sync → tap **Conflict** on a note, pick a resolver, and **Sync** to see it resolved. The **Dashboard**
+button (debug builds only) opens the live counters.
 
 ---
 
@@ -104,6 +110,7 @@ Look for `BUILD SUCCESSFUL` and check `*/build/reports/tests/test/index.html` fo
 ./gradlew :sync-core:test
 ./gradlew :sync-storage-room:test   # includes the Room adapter tests (Robolectric, no device)
 ./gradlew :sync-network-retrofit:test
+./gradlew :sync-workmanager:test    # WorkManager tests via WorkManagerTestInitHelper (Robolectric)
 ```
 
 > `:sync-storage-room`'s `RoomSyncAdapter` tests spin up a real in-memory Room
@@ -188,7 +195,8 @@ dependencies {
 | `./gradlew :sync-core:test` | Test a single module |
 | `./gradlew clean` | Wipe all build output |
 | `./gradlew dependencies` | Print full dependency tree |
-| `./gradlew apiCheck` | Verify no accidental public API changes (available after F-15) |
+| `./gradlew apiCheck` | Verify no accidental public API changes (Binary Compatibility Validator) |
+| `./gradlew apiDump` | Regenerate the committed `.api` files after an intentional API change |
 | `./gradlew publishToMavenLocal` | Install to local Maven cache |
 | `./gradlew lint` | Run Android lint on all modules |
 
@@ -238,3 +246,15 @@ backend (Room 2.7 supports KSP2). Keep Room ≥ 2.7 here; do not add `ksp.useKSP
 
 **Room compile error `Cannot find symbol @Dao`**
 → `:sync-storage-room` uses KSP for Room codegen (migrated in Feature F-09). The `com.google.devtools.ksp` plugin (version `2.1.0-1.0.29`, tracking Kotlin 2.1.0) is declared apply-false at the root and applied via `alias(libs.plugins.ksp)` in the module; Room codegen is wired as `ksp(libs.androidx.room.compiler)` for `main` and `kspTest(...)` for the Robolectric JVM tests — never `annotationProcessor`. KSP needs no separate SDK install; Gradle resolves it automatically. If codegen seems stale, run `./gradlew clean`.
+
+**`apiCheck` fails with "No .api file found" / a large diff on first run**
+→ The Binary Compatibility Validator (F-15) compares against committed `.api` dumps. Generate them once
+with `./gradlew apiDump`, review the produced `*/api/*.api` files, and commit them. After that, `apiCheck`
+passes until the public API changes — at which point re-run `apiDump` and commit the update in the same PR.
+
+**Compose build error about the Compose compiler / Kotlin version mismatch**
+→ The Compose modules (`:sync-ui-dashboard`, `:sample-app`) apply `org.jetbrains.kotlin.plugin.compose`
+(`libs.plugins.compose.compiler`, version `2.1.0`). That version must match the Kotlin version AGP 9's
+built-in Kotlin uses. Do **not** re-add the standalone Kotlin Android plugin (ADL-005) — only the Compose
+compiler plugin plus `buildFeatures { compose = true }` are needed. If the versions drift, align
+`composeCompiler` in `gradle/libs.versions.toml` with the built-in Kotlin version.

@@ -42,6 +42,7 @@ SyncEngine is split into focused, independently consumable modules. Import only 
 :sync-core               — interfaces, models, state machine (required)
 :sync-storage-room       — Room-based local persistence adapter
 :sync-network-retrofit   — Retrofit-based network adapter
+:sync-workmanager        — WorkManager-based background scheduler
 :sync-ui-dashboard       — debug-only Compose dashboard (not for production)
 :sample-app              — reference implementation (not published)
 ```
@@ -52,6 +53,7 @@ sample-app
     └── all modules
 
 sync-ui-dashboard      → sync-core
+sync-workmanager       → sync-core
 sync-network-retrofit  → sync-core
 sync-storage-room      → sync-core
 sync-core              → Kotlin stdlib + Coroutines only
@@ -162,8 +164,11 @@ val merge = ConflictResolver<Note> { local, remote ->
 }
 ```
 
-These three strategies (last-write-wins, server-wins, custom merge) are demonstrated end-to-end in
-the sample app.
+Pass a resolver to `SyncEngine.create(..., resolver = ...)` to enable two-way sync. During a run the
+engine pulls remote changes and, when a locally-pending entity also changed on the server, invokes the
+resolver; the winner is persisted and pushed back so both sides converge. A conflict with **no**
+resolver configured leaves the entity in `SyncState.CONFLICT` and is reported as
+`SyncError.ConflictUnresolvable`. These three strategies are demonstrated end-to-end in the sample app.
 
 ### 5. Engine results and configuration
 
@@ -210,6 +215,7 @@ interface LocalSyncStore<T : SyncableEntity> {
     suspend fun getPending(): List<T>
     suspend fun getByState(state: SyncState): List<T>
     suspend fun getById(id: String): T?
+    suspend fun upsert(entities: List<T>)
     suspend fun getTombstones(): List<T>
     suspend fun markSyncState(id: String, state: SyncState)
     suspend fun hardDelete(ids: List<String>)
@@ -217,16 +223,15 @@ interface LocalSyncStore<T : SyncableEntity> {
 }
 ```
 
-Your Room DAO is a **plain `@Dao`** with a `@RawQuery` method; `RoomSyncAdapter` reads state-scoped
-slices of your entity table through it and writes engine outcomes back. There is **no separate queue
-table** and no generic base DAO to implement — your entity's `syncState` column is the single source
-of truth, and a plain `@Dao` sidesteps Room's KSP limitation with generic DAOs.
+Your Room DAO is a **plain `@Dao`** with a `@RawQuery` read and an `@Upsert` write; `RoomSyncAdapter`
+reads state-scoped slices of your entity table through them and writes engine outcomes back. There is
+**no separate queue table** and no generic base DAO to implement — your entity's `syncState` column is
+the single source of truth, and a plain `@Dao` sidesteps Room's KSP limitation with generic DAOs.
 
 ```kotlin
 @Dao
 interface NoteDao {
-    @Upsert   suspend fun upsert(entity: Note)
-    @Delete   suspend fun delete(entity: Note)
+    @Upsert   suspend fun upsertAll(entities: List<Note>)
     @RawQuery suspend fun rawQuery(query: SupportSQLiteQuery): List<Note>
 }
 
@@ -236,7 +241,12 @@ abstract class AppDatabase : SyncDatabase() {   // SyncDatabase is optional; any
 }
 
 val db = Room.databaseBuilder(context, AppDatabase::class.java, "app.db").build()
-val store = RoomSyncAdapter<Note>(database = db, tableName = "notes", rawQuery = db.noteDao()::rawQuery)
+val store = RoomSyncAdapter<Note>(
+    database = db,
+    tableName = "notes",
+    rawQuery = db.noteDao()::rawQuery,
+    upsert = db.noteDao()::upsertAll,
+)
 ```
 
 The store keeps the four `SyncableEntity` columns under their default names (`id`, `syncState`,
@@ -244,6 +254,45 @@ The store keeps the four `SyncableEntity` columns under their default names (`id
 table name as a SQL identifier and binds every query value (no injection), and
 `purgeExpiredTombstones` hard-deletes failed tombstones past `tombstoneRetentionDays` for GDPR
 erasure hygiene.
+
+### 7. Background sync (WorkManager)
+
+`:sync-workmanager` runs sync automatically in the background via `WorkManagerSyncScheduler`, an
+implementation of the framework-free `SyncScheduler` interface. Create it once (typically in your
+`Application`) with a provider for your engine, and WorkManager is kept entirely out of your code:
+
+```kotlin
+interface SyncScheduler {
+    fun schedulePeriodicSync()   // requires network; retries with exponential backoff
+    fun cancelSync()
+}
+
+val scheduler = WorkManagerSyncScheduler(context, engineProvider = { engine })
+scheduler.schedulePeriodicSync()   // every 15 min (WorkManager's minimum), when online
+```
+
+The worker carries no payload — only WorkManager's own job id, never tokens or entity data. The
+default cadence is 15 minutes (WorkManager's minimum for periodic work); pass `intervalMinutes` to
+change it.
+
+### 8. Debug dashboard (Compose)
+
+`:sync-ui-dashboard` is a **debug-only** Jetpack Compose screen showing live sync status: current
+state, last-sync time, pending / failed / conflict counts, last error, and a "Sync now" button. Add
+it with `debugImplementation` so it never ships in release builds.
+
+Embed `SyncDashboardRoute` in your own screen, or launch the ready-made `SyncDashboardActivity` from a
+debug menu. The activity reads a state source you install once:
+
+```kotlin
+// Debug build only — build a StateFlow<SyncDashboardState> from your engine + store:
+SyncDashboard.install(state = dashboardState, onTriggerSync = { scope.launch { engine.triggerSync() } })
+// ...then launch it:
+startActivity(Intent(context, SyncDashboardActivity::class.java))
+```
+
+The dashboard depends only on `:sync-core` — it observes state through the public interfaces and never
+touches Room or WorkManager directly.
 
 ---
 
@@ -286,7 +335,13 @@ until you call `triggerSync()`.
 val engine: SyncEngine = SyncEngine.create(
     adapter = MyApiAdapter(api),
     config = SyncEngineConfig { batchSize = 100 },
-    store = RoomSyncAdapter(db, tableName = "notes", rawQuery = db.noteDao()::rawQuery), // durable queue
+    store = RoomSyncAdapter(                                  // durable, offline-first queue
+        db, tableName = "notes",
+        rawQuery = db.noteDao()::rawQuery, upsert = db.noteDao()::upsertAll,
+    ),
+    resolver = ConflictResolver { local, remote ->           // enable two-way sync + conflicts
+        if (local.lastModified >= remote.lastModified) local else remote
+    },
 )
 
 // Observe the engine's state reactively (e.g. from a ViewModel):
@@ -325,17 +380,13 @@ SyncEngine.create(adapter).use { engine ->
 
 ## Implementation status
 
-`:sync-core` is being built up commit by commit. As of the Room storage milestone (Commit 7):
-
 | Capability | Status |
 |---|---|
 | Public API contracts (entity, results, adapter, config, engine) | ✅ Available |
 | `SyncEngine.create()` + `triggerSync()` + `close()` | ✅ Available |
 | Guarded state machine + thread-safe queue + single-flight, isolated batch push | ✅ Available |
-| Room-backed durable storage (`LocalSyncStore` / `RoomSyncAdapter` / `BaseSyncDao`) | ✅ Available |
+| Room-backed durable storage (`LocalSyncStore` / `RoomSyncAdapter`) | ✅ Available |
 | Retrofit network adapter (`RetrofitSyncAdapter` in `:sync-network-retrofit`) | ✅ Available |
-| Two-way pull + conflict resolution during a run | 🔜 With the network/background commits |
-
-The engine now drains a durable `LocalSyncStore` when given one and persists each entity's outcome;
-two-way pull and `Success.conflictCount` (still always `0`) arrive with the network commits. The
-public API above is stable and will not change as those capabilities are filled in.
+| Two-way pull + conflict resolution + tombstone delete-confirmation during a run | ✅ Available |
+| Background scheduling (`WorkManagerSyncScheduler` in `:sync-workmanager`) | ✅ Available |
+| Debug dashboard (`SyncDashboardActivity` in `:sync-ui-dashboard`) | ✅ Available |
