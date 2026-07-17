@@ -23,6 +23,7 @@ Written in Kotlin. Built on Coroutines + Flow, Room, WorkManager, and Retrofit. 
 - [FAQ](#faq)
 - [Implementation status](#implementation-status)
 - [Versioning & stability](#versioning--stability)
+- [Contributing & community](#contributing--community)
 - [License](#license)
 
 ---
@@ -566,6 +567,20 @@ The library follows **Semantic Versioning**:
 - **Patch** (`0.0.X`) — bug fixes, internal changes, no public-API impact.
 
 Anything under `internal` visibility, in an `internal` package, or in the sample app is **not** covered by the compatibility contract. Once `1.0.0` is tagged, breaking changes across the public surface require a major bump.
+
+Release history and per-version details live in [`CHANGELOG.md`](CHANGELOG.md).
+
+---
+
+## Contributing & community
+
+Contributions are welcome. Before opening a PR, please read:
+
+- [`CONTRIBUTING.md`](CONTRIBUTING.md) — development environment, PR workflow, one-line conventional-commit style.
+- [`CODE_OF_CONDUCT.md`](CODE_OF_CONDUCT.md) — Contributor Covenant 2.1.
+- [`SECURITY.md`](SECURITY.md) — how to report a vulnerability (**do not** open a public issue).
+
+Bug reports and small fixes are the easiest to review; large redesigns are best discussed in an issue first, since the public API is a forever promise.
 
 ---
 
