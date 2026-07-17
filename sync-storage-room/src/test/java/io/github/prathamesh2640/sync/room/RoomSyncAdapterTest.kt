@@ -3,7 +3,6 @@ package io.github.prathamesh2640.sync.room
 import android.content.Context
 import androidx.room.Dao
 import androidx.room.Database
-import androidx.room.Delete
 import androidx.room.Entity
 import androidx.room.PrimaryKey
 import androidx.room.RawQuery
@@ -49,6 +48,7 @@ class RoomSyncAdapterTest {
             database = db,
             tableName = "notes",
             rawQuery = db.noteDao()::rawQuery,
+            upsert = db.noteDao()::upsertAll,
             clock = { now },
         )
     }
@@ -83,6 +83,18 @@ class RoomSyncAdapterTest {
     @Test
     fun getById_returns_null_on_miss() = runTest {
         assertNull(store.getById("does-not-exist"))
+    }
+
+    @Test
+    fun upsert_inserts_then_replaces_by_id() = runTest {
+        store.upsert(listOf(note("a", SyncState.SYNCED), note("b", SyncState.SYNCED)))
+        assertEquals(setOf("a", "b"), store.getByState(SyncState.SYNCED).map { it.id }.toSet())
+
+        store.upsert(listOf(note("a", SyncState.SYNCED).copy(title = "updated")))
+        assertEquals("updated", store.getById("a")?.title)
+
+        store.upsert(emptyList()) // no-op, must not throw
+        assertNotNull(store.getById("b"))
     }
 
     @Test
@@ -154,7 +166,12 @@ class RoomSyncAdapterTest {
 
     @Test(expected = IllegalArgumentException::class)
     fun constructor_rejects_non_identifier_table_name() {
-        RoomSyncAdapter<TestNote>(db, tableName = "notes; DROP TABLE notes", rawQuery = db.noteDao()::rawQuery)
+        RoomSyncAdapter<TestNote>(
+            db,
+            tableName = "notes; DROP TABLE notes",
+            rawQuery = db.noteDao()::rawQuery,
+            upsert = db.noteDao()::upsertAll,
+        )
     }
 }
 
@@ -181,7 +198,7 @@ internal data class TestNote(
 @Dao
 internal interface TestNoteDao {
     @Upsert suspend fun upsert(entity: TestNote)
-    @Delete suspend fun delete(entity: TestNote)
+    @Upsert suspend fun upsertAll(entities: List<TestNote>)
     @RawQuery suspend fun rawQuery(query: SupportSQLiteQuery): List<TestNote>
 }
 

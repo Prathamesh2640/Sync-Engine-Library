@@ -77,6 +77,22 @@ public interface LocalSyncStore<T : SyncableEntity> {
     public suspend fun getTombstones(): List<T>
 
     /**
+     * Insert or replace [entities] in local storage.
+     *
+     * This is the write path the engine uses when applying **pulled** remote
+     * changes (and reconciled conflict winners): the authoritative version from
+     * the server is persisted so the local store converges on it. Implementations
+     * back this with the host DAO's own upsert (e.g. Room's `@Upsert`), so the
+     * full entity — every column, not just the sync fields — is written.
+     *
+     * Passing an empty list is a no-op. Upsert is keyed on [SyncableEntity.id], so
+     * re-applying the same remote entity is idempotent.
+     *
+     * @param entities the entities to insert or replace.
+     */
+    public suspend fun upsert(entities: List<T>)
+
+    /**
      * Persist a new [SyncState] for the entity identified by [id].
      *
      * This is the write-back path the engine uses after a run: `SYNCED` on

@@ -1,5 +1,6 @@
 package io.github.prathamesh2640.sync.core.engine
 
+import io.github.prathamesh2640.sync.core.adapter.ConflictResolver
 import io.github.prathamesh2640.sync.core.adapter.SyncNetworkAdapter
 import io.github.prathamesh2640.sync.core.internal.SyncEngineImpl
 import io.github.prathamesh2640.sync.core.model.SyncState
@@ -84,7 +85,10 @@ public interface SyncEngine : Closeable {
          * val engine = SyncEngine.create(
          *     adapter = myNetworkAdapter,
          *     config = SyncEngineConfig { batchSize = 100 },
-         *     store = myRoomSyncAdapter, // optional: durable, offline-first queue
+         *     store = myRoomSyncAdapter,   // optional: durable, offline-first queue
+         *     resolver = ConflictResolver { local, remote ->  // optional: two-way sync
+         *         if (local.lastModified >= remote.lastModified) local else remote
+         *     },
          * )
          * engine.use {
          *     val result = it.triggerSync()
@@ -99,9 +103,15 @@ public interface SyncEngine : Closeable {
          * @param store optional durable [LocalSyncStore] (e.g. `RoomSyncAdapter`
          *   from `:sync-storage-room`). When supplied, each run seeds its queue
          *   from storage and writes outcomes back, so pending work survives
-         *   process death. When omitted the engine keeps an in-memory queue only.
-         *   Declared last so existing `create(adapter)` / `create(adapter, config)`
-         *   call sites are unaffected.
+         *   process death, and the engine performs a two-way sync (push, then pull
+         *   remote changes into the store). When omitted the engine keeps an
+         *   in-memory, push-only queue. Declared before [resolver] so existing
+         *   `create(adapter)` / `create(adapter, config)` call sites are unaffected.
+         * @param resolver optional [ConflictResolver] applied during the pull phase
+         *   when a locally-pending entity also changed on the remote. Requires
+         *   [store] (there is nothing to pull into without one). When omitted, a
+         *   detected conflict leaves the entity in [SyncState.CONFLICT] and is
+         *   reported as [io.github.prathamesh2640.sync.core.result.SyncError.ConflictUnresolvable].
          * @return a new engine. Remember to [close] it (or use `use { }`) to
          *   release its coroutine scope.
          */
@@ -111,6 +121,7 @@ public interface SyncEngine : Closeable {
             adapter: SyncNetworkAdapter<T>,
             config: SyncEngineConfig = SyncEngineConfig {},
             store: LocalSyncStore<T>? = null,
-        ): SyncEngine = SyncEngineImpl(adapter = adapter, config = config, store = store)
+            resolver: ConflictResolver<T>? = null,
+        ): SyncEngine = SyncEngineImpl(adapter = adapter, config = config, store = store, resolver = resolver)
     }
 }

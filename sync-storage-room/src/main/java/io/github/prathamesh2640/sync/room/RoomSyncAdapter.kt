@@ -26,8 +26,7 @@ import kotlinx.coroutines.withContext
  * ```kotlin
  * @Dao
  * interface NoteDao {
- *     @Upsert   suspend fun upsert(entity: Note)
- *     @Delete   suspend fun delete(entity: Note)
+ *     @Upsert   suspend fun upsertAll(entities: List<Note>)
  *     @RawQuery suspend fun rawQuery(query: SupportSQLiteQuery): List<Note>
  * }
  *
@@ -36,6 +35,7 @@ import kotlinx.coroutines.withContext
  *     database = db,
  *     tableName = "notes",
  *     rawQuery = db.noteDao()::rawQuery,
+ *     upsert = db.noteDao()::upsertAll,
  * )
  * val engine = SyncEngine.create(adapter = noteApiAdapter, store = store)
  * ```
@@ -63,6 +63,11 @@ import kotlinx.coroutines.withContext
  *   Validated as a SQL identifier.
  * @param rawQuery the host DAO's `@RawQuery` method (e.g. `db.noteDao()::rawQuery`)
  *   — maps a [SupportSQLiteQuery] to a list of entities.
+ * @param upsert the host DAO's `@Upsert` method taking a list (e.g.
+ *   `db.noteDao()::upsertAll`) — the engine calls it to persist pulled remote
+ *   changes and reconciled conflict winners. A full-entity write Room cannot
+ *   express on a type parameter, so the concrete DAO supplies it (mirrors
+ *   [rawQuery]).
  * @param clock supplies "now" in epoch ms for tombstone-age math; injectable for
  *   deterministic tests. Defaults to [System.currentTimeMillis].
  * @param ioDispatcher dispatcher the blocking SQLite calls run on; injectable for
@@ -72,6 +77,7 @@ public class RoomSyncAdapter<T : SyncableEntity>(
     private val database: RoomDatabase,
     tableName: String,
     private val rawQuery: suspend (SupportSQLiteQuery) -> List<T>,
+    private val upsert: suspend (List<T>) -> Unit,
     private val clock: () -> Long = System::currentTimeMillis,
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
 ) : LocalSyncStore<T> {
@@ -100,6 +106,11 @@ public class RoomSyncAdapter<T : SyncableEntity>(
 
     override suspend fun getTombstones(): List<T> = withContext(ioDispatcher) {
         rawQuery(SimpleSQLiteQuery("SELECT * FROM `$table` WHERE $COL_DELETED = 1"))
+    }
+
+    override suspend fun upsert(entities: List<T>) {
+        if (entities.isEmpty()) return
+        withContext(ioDispatcher) { upsert.invoke(entities) }
     }
 
     override suspend fun markSyncState(id: String, state: SyncState): Unit = withContext(ioDispatcher) {

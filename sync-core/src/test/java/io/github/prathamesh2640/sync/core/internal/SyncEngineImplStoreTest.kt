@@ -44,6 +44,10 @@ class SyncEngineImplStoreTest {
 
         override suspend fun getById(id: String): Note? = rows[id]
 
+        override suspend fun upsert(entities: List<Note>) {
+            entities.forEach { rows[it.id] = it }
+        }
+
         override suspend fun getTombstones(): List<Note> = rows.values.filter { it.isDeleted }
 
         override suspend fun markSyncState(id: String, state: SyncState) {

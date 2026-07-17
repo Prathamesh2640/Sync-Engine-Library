@@ -1,5 +1,6 @@
 package io.github.prathamesh2640.sync.core.internal
 
+import io.github.prathamesh2640.sync.core.adapter.ConflictResolver
 import io.github.prathamesh2640.sync.core.adapter.NetworkResult
 import io.github.prathamesh2640.sync.core.adapter.SyncNetworkAdapter
 import io.github.prathamesh2640.sync.core.engine.SyncEngine
@@ -21,6 +22,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.supervisorScope
 import kotlinx.coroutines.sync.Mutex
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicLong
 
 /**
  * Default [SyncEngine] implementation.
@@ -29,26 +31,28 @@ import java.util.concurrent.atomic.AtomicBoolean
  * obtained from [SyncEngine.create]. This class is free to change without
  * breaking consumers.
  *
- * ### What this version does
- * It owns the sync lifecycle for the entities held in its in-memory [SyncQueue]:
- * on [triggerSync] it drains a batch, pushes each entity through the injected
- * [SyncNetworkAdapter], and drives its observable [syncState] through a
- * [SyncStateMachine]. Batch items are pushed inside a [supervisorScope] so one
- * item's failure never cancels its siblings (F-08). Failed items are re-queued
- * for the next run.
+ * ### What a run does
+ * On [triggerSync] the engine, in order:
+ * 1. **Pulls** remote changes (storage-backed engines only). It calls
+ *    [SyncNetworkAdapter.pull] since the last watermark and reconciles each remote
+ *    entity with local state (see [reconcile]). A brand-new or non-dirty remote
+ *    entity is applied and marked `SYNCED`; when a locally-pending entity also
+ *    changed remotely the [ConflictResolver] picks the winner, which is persisted
+ *    `PENDING` so the push phase sends it back so both sides converge; a conflict
+ *    with no resolver leaves the entity `CONFLICT`.
+ * 2. **Pushes** the pending batch. It drains the in-memory [SyncQueue] (seeded
+ *    from the [LocalSyncStore] when one is configured, including any conflict
+ *    winners from step 1) and pushes each entity through the injected
+ *    [SyncNetworkAdapter]. Items are pushed inside a [supervisorScope] so one
+ *    item's failure never cancels its siblings (F-08); failed items are re-queued
+ *    for the next run and written back as `FAILED`.
+ * 3. **Confirms deletions** (storage-backed engines only). Tombstones that pushed
+ *    successfully are hard-deleted locally once [SyncNetworkAdapter.delete]
+ *    confirms them on the remote.
+ * 4. **Purges** expired tombstones once per run (SEC-10 / GDPR).
  *
- * ### Storage-backed queue (Commit 7)
- * When constructed with a [LocalSyncStore], each run seeds the in-memory queue
- * from [LocalSyncStore.getPending] (so pending work survives process death),
- * writes every entity's outcome back to the store (`SYNCED` on success, `FAILED`
- * on a rejected push), and purges expired tombstones once per run (SEC-10).
- * Constructed without a store, the queue is fed internally/in tests exactly as
- * before — the store path is fully additive and defaulted off.
- *
- * ### What is intentionally deferred
- * Pull/merge and conflict resolution remain deferred:
- * [SyncResult.Success.conflictCount] is always `0` and no
- * [io.github.prathamesh2640.sync.core.adapter.ConflictResolver] is wired yet.
+ * Without a [store] the engine is push-only and framework-free exactly as before —
+ * steps 1, 3 and 4 are skipped because there is nowhere durable to pull into.
  *
  * ### Concurrency & lifecycle guarantees
  * - **Single in-flight run** (SEC-11): [triggerSync] is guarded by [syncMutex];
@@ -56,11 +60,11 @@ import java.util.concurrent.atomic.AtomicBoolean
  *   `Success(0, 0)` rather than starting a second concurrent run.
  * - **No leaks** (SEC-04): all work runs on [engineScope], which [close] cancels.
  * - **Never throws across the boundary** (SEC-12): every outcome — including a
- *   misbehaving adapter that throws, or the engine being closed mid-run — is
- *   returned as a [SyncResult].
+ *   misbehaving adapter/store/resolver that throws, or the engine being closed
+ *   mid-run — is returned as a [SyncResult].
  *
  * @param adapter moves entities across the network.
- * @param config engine tuning (batch size, etc.).
+ * @param config engine tuning (batch size, retention, etc.).
  * @param dispatcher the dispatcher the engine's scope runs on. Injectable so
  *   tests can supply a deterministic test dispatcher; defaults to
  *   [Dispatchers.Default].
@@ -69,9 +73,10 @@ import java.util.concurrent.atomic.AtomicBoolean
  * @param stateMachine the guarded state holder. Injectable for tests; defaults
  *   to a fresh machine starting at [SyncState.PENDING].
  * @param store optional durable local store. When non-null the engine seeds its
- *   queue from it and writes outcomes back; when null (the default) the engine
- *   behaves exactly as the pre-storage push-only implementation. Declared last
- *   so existing positional constructions stay source-compatible.
+ *   queue from it, writes outcomes back, and performs the pull/delete/purge
+ *   phases; when null (the default) the engine is push-only. Declared before
+ *   [resolver] so existing positional constructions stay source-compatible.
+ * @param resolver optional conflict-resolution strategy for the pull phase.
  */
 internal class SyncEngineImpl<T : SyncableEntity>(
     private val adapter: SyncNetworkAdapter<T>,
@@ -80,6 +85,7 @@ internal class SyncEngineImpl<T : SyncableEntity>(
     private val queue: SyncQueue<T> = SyncQueue(),
     private val stateMachine: SyncStateMachine = SyncStateMachine(),
     private val store: LocalSyncStore<T>? = null,
+    private val resolver: ConflictResolver<T>? = null,
 ) : SyncEngine {
 
     private val engineScope = CoroutineScope(SupervisorJob() + dispatcher)
@@ -89,11 +95,18 @@ internal class SyncEngineImpl<T : SyncableEntity>(
 
     private val closed = AtomicBoolean(false)
 
+    /**
+     * Epoch-ms watermark of the last successful pull. In-memory by design: after
+     * process death it resets to 0, so the next run re-pulls everything — safe
+     * because [LocalSyncStore.upsert] is idempotent (keyed on id).
+     */
+    private val pullSince = AtomicLong(0L)
+
     override val syncState: StateFlow<SyncState> get() = stateMachine.state
 
     /**
-     * Enqueue an entity for the next run. Internal seam used by tests and, in a
-     * later commit, by the storage adapter. Not part of the public API.
+     * Enqueue an entity for the next run. Internal seam used by tests and by the
+     * storage-backed seeding path. Not part of the public API.
      */
     internal suspend fun enqueue(entity: T) {
         queue.enqueue(entity)
@@ -115,9 +128,8 @@ internal class SyncEngineImpl<T : SyncableEntity>(
             // coroutine was cancelled: honour structured concurrency and rethrow.
             if (closed.get()) closedFailure() else throw cancellation
         } catch (throwable: Throwable) {
-            // SEC-12: the LocalSyncStore contract forbids throwing, but defend the
-            // boundary — a misbehaving store must not crash the host app. Surface
-            // it as a clean Failure carrying the cause.
+            // SEC-12: the store/adapter contracts forbid throwing, but defend the
+            // boundary — a misbehaving collaborator must not crash the host app.
             SyncResult.Failure(SyncError.StorageError(throwable))
         } finally {
             syncMutex.unlock()
@@ -133,18 +145,35 @@ internal class SyncEngineImpl<T : SyncableEntity>(
     private suspend fun runOnce(): SyncResult {
         moveToSyncing()
 
-        // Storage-backed engines (Commit 7): seed the in-memory queue from the
-        // durable store so pending work survives process death. Coalescing by id
-        // makes re-seeding an already-queued entity harmless. No-op without a store.
+        // Pull first so conflicts are detected while the local copy is still
+        // PENDING; resolved winners are re-queued PENDING and pushed below.
+        val pull = if (store != null) pullPhase() else PullOutcome.EMPTY
+        val push = pushPhase()
+        if (store != null) {
+            confirmDeletions(store)
+            store.purgeExpiredTombstones(config.tombstoneRetentionDays)
+        }
+
+        // Push errors are surfaced before pull/conflict errors for callers that
+        // inspect errors.first().
+        val errors = push.errors + pull.errors
+        val syncedCount = push.syncedCount + pull.downloadedCount
+
+        return finish(errors = errors, syncedCount = syncedCount, conflictCount = pull.conflictCount)
+    }
+
+    // --- Push phase -----------------------------------------------------------
+
+    private class PushOutcome(val syncedCount: Int, val errors: List<SyncError>)
+
+    private suspend fun pushPhase(): PushOutcome {
+        // Storage-backed engines: seed the in-memory queue from the durable store
+        // so pending work survives process death. Coalescing by id makes
+        // re-seeding an already-queued entity harmless. No-op without a store.
         store?.let { queue.enqueueAll(it.getPending()) }
 
         val batch = queue.drainBatch(config.batchSize)
-        if (batch.isEmpty()) {
-            stateMachine.transitionTo(SyncState.SYNCED)
-            // Nothing to push, but still honour tombstone retention (SEC-10).
-            store?.purgeExpiredTombstones(config.tombstoneRetentionDays)
-            return SyncResult.Success(syncedCount = 0, conflictCount = 0)
-        }
+        if (batch.isEmpty()) return PushOutcome(syncedCount = 0, errors = emptyList())
 
         // Push each item concurrently. supervisorScope means one failing child
         // does not cancel the others; pushOne never throws, so awaitAll() only
@@ -155,33 +184,183 @@ internal class SyncEngineImpl<T : SyncableEntity>(
         }
 
         val failures = outcomes.filter { it.second !is NetworkResult.Success }
-        val syncedCount = outcomes.size - failures.size
-
         // Re-queue failed items so they are retried on the next run.
         failures.forEach { queue.enqueue(it.first) }
 
-        // Persist each entity's outcome to the durable store (Commit 7): SYNCED
-        // for accepted items, FAILED for rejected ones. The store is the single
-        // source of truth for entity state; the in-memory re-queue above drives
-        // the immediate retry. No-op without a store.
+        // Persist each entity's outcome to the durable store: SYNCED for accepted
+        // items, FAILED for rejected ones. No-op without a store.
         store?.let { s ->
             val failedIds = failures.mapTo(HashSet(failures.size)) { it.first.id }
             for ((entity, _) in outcomes) {
-                s.markSyncState(
-                    entity.id,
-                    if (entity.id in failedIds) SyncState.FAILED else SyncState.SYNCED,
-                )
+                s.markSyncState(entity.id, if (entity.id in failedIds) SyncState.FAILED else SyncState.SYNCED)
             }
-            // Tombstone retention hygiene, once per run (SEC-10 / GDPR).
-            s.purgeExpiredTombstones(config.tombstoneRetentionDays)
         }
 
-        val errors = failures.map { it.second.toSyncError() }
+        return PushOutcome(
+            syncedCount = outcomes.size - failures.size,
+            errors = failures.map { it.second.toSyncError() },
+        )
+    }
 
-        return when {
-            failures.isEmpty() -> {
+    private suspend fun pushOne(entity: T): NetworkResult<Unit> =
+        try {
+            adapter.push(listOf(entity))
+        } catch (cancellation: CancellationException) {
+            throw cancellation // never swallow cancellation — structured concurrency
+        } catch (throwable: Throwable) {
+            // The adapter contract forbids throwing, but defend the boundary.
+            NetworkResult.UnknownError(throwable)
+        }
+
+    // --- Pull phase -----------------------------------------------------------
+
+    private class PullOutcome(
+        val downloadedCount: Int,
+        val conflictCount: Int,
+        val errors: List<SyncError>,
+    ) {
+        companion object {
+            val EMPTY = PullOutcome(downloadedCount = 0, conflictCount = 0, errors = emptyList())
+        }
+    }
+
+    /**
+     * Pull remote changes since the watermark and reconcile them into [store]
+     * (guaranteed non-null by the caller).
+     *
+     * Downloaded entities (no local conflict) are persisted `SYNCED` and counted
+     * as downloaded. Conflict winners are persisted `PENDING` so the following
+     * push phase sends them back, converging both sides; they are counted via
+     * [PullOutcome.conflictCount] and will be tallied as synced once pushed.
+     */
+    private suspend fun pullPhase(): PullOutcome {
+        val store = this.store ?: return PullOutcome.EMPTY
+
+        val remote = when (val result = pullRemote(pullSince.get())) {
+            is NetworkResult.Success -> result.data
+            else -> return PullOutcome(downloadedCount = 0, conflictCount = 0, errors = listOf(result.toListSyncError()))
+        }
+        if (remote.isEmpty()) return PullOutcome.EMPTY
+
+        val downloads = ArrayList<T>(remote.size)
+        val winners = ArrayList<T>()
+        val conflictErrors = ArrayList<SyncError>()
+        var maxSeen = pullSince.get()
+
+        for (entity in remote) {
+            maxSeen = maxOf(maxSeen, entity.lastModified)
+            when (val decision = reconcile(store.getById(entity.id), entity)) {
+                is Reconciliation.Apply -> downloads += decision.winner
+                is Reconciliation.Resolved -> winners += decision.winner
+                is Reconciliation.Unresolvable -> {
+                    store.markSyncState(entity.id, SyncState.CONFLICT)
+                    conflictErrors += SyncError.ConflictUnresolvable(entity.id)
+                }
+                Reconciliation.Skip -> Unit
+            }
+        }
+
+        if (downloads.isNotEmpty()) {
+            store.upsert(downloads)
+            for (entity in downloads) store.markSyncState(entity.id, SyncState.SYNCED)
+        }
+        if (winners.isNotEmpty()) {
+            store.upsert(winners)
+            for (entity in winners) store.markSyncState(entity.id, SyncState.PENDING)
+        }
+
+        pullSince.set(maxSeen)
+        return PullOutcome(downloadedCount = downloads.size, conflictCount = winners.size, errors = conflictErrors)
+    }
+
+    private suspend fun pullRemote(since: Long): NetworkResult<List<T>> =
+        try {
+            adapter.pull(since)
+        } catch (cancellation: CancellationException) {
+            throw cancellation
+        } catch (throwable: Throwable) {
+            NetworkResult.UnknownError(throwable)
+        }
+
+    /**
+     * Decide what to do with a single remote entity given its local counterpart.
+     *
+     * Conflict rule (generic, content-agnostic): a local row is "clean" only when
+     * it is [SyncState.SYNCED]; any other state (PENDING/FAILED/CONFLICT) means it
+     * holds local changes the server has not accepted. A remote change for a dirty
+     * local row is a genuine conflict, resolved by the [resolver] if one is set.
+     * A clean local row (or none at all) lets the remote copy win.
+     */
+    private fun reconcile(local: T?, remote: T): Reconciliation<T> = when {
+        local == null -> Reconciliation.Apply(remote)
+        // A local, unconfirmed deletion wins until the server confirms it.
+        local.isDeleted -> Reconciliation.Skip
+        // Clean local row → remote is authoritative.
+        local.syncState == SyncState.SYNCED -> Reconciliation.Apply(remote)
+        // Dirty local row + remote change → conflict.
+        else -> resolveConflict(local, remote)
+    }
+
+    private fun resolveConflict(local: T, remote: T): Reconciliation<T> {
+        val resolver = this.resolver ?: return Reconciliation.Unresolvable
+        return try {
+            Reconciliation.Resolved(resolver.resolve(local, remote))
+        } catch (throwable: Throwable) {
+            // A resolver that throws or declines is treated as unresolvable — the
+            // entity is flagged for manual handling rather than crashing the run.
+            Reconciliation.Unresolvable
+        }
+    }
+
+    private sealed interface Reconciliation<out T> {
+        /** Apply [winner] as the authoritative version (no conflict). */
+        data class Apply<out T>(val winner: T) : Reconciliation<T>
+        /** A conflict the resolver settled; [winner] is the reconciled version. */
+        data class Resolved<out T>(val winner: T) : Reconciliation<T>
+        /** A conflict with no resolver (or the resolver failed). */
+        data object Unresolvable : Reconciliation<Nothing>
+        /** Leave local state untouched (e.g. a pending local deletion). */
+        data object Skip : Reconciliation<Nothing>
+    }
+
+    // --- Delete-confirmation phase -------------------------------------------
+
+    /**
+     * Confirm and finalise deletions: tombstones that pushed successfully (now
+     * [SyncState.SYNCED]) are hard-deleted locally once the remote confirms them.
+     */
+    private suspend fun confirmDeletions(store: LocalSyncStore<T>) {
+        val confirmable = store.getTombstones().filter { it.syncState == SyncState.SYNCED }
+        if (confirmable.isEmpty()) return
+
+        val ids = confirmable.map { it.id }
+        val result = try {
+            adapter.delete(ids)
+        } catch (cancellation: CancellationException) {
+            throw cancellation
+        } catch (throwable: Throwable) {
+            NetworkResult.UnknownError(throwable)
+        }
+        // Only drop local rows the server actually confirmed. A failed confirmation
+        // leaves the tombstones in place to retry next run — deletions are never lost.
+        if (result is NetworkResult.Success) store.hardDelete(ids)
+    }
+
+    // --- Result & state -------------------------------------------------------
+
+    private suspend fun finish(errors: List<SyncError>, syncedCount: Int, conflictCount: Int): SyncResult =
+        when {
+            errors.isEmpty() -> {
                 stateMachine.transitionTo(SyncState.SYNCED)
-                SyncResult.Success(syncedCount = syncedCount, conflictCount = 0)
+                SyncResult.Success(syncedCount = syncedCount, conflictCount = conflictCount)
+            }
+
+            // Failures are all conflicts (nothing else went wrong) → CONFLICT,
+            // which the host can surface distinctly from a transport/HTTP failure.
+            errors.all { it is SyncError.ConflictUnresolvable } -> {
+                stateMachine.transitionTo(SyncState.CONFLICT)
+                if (syncedCount == 0) SyncResult.Failure(errors.first())
+                else SyncResult.PartialFailure(syncedCount, errors.size, errors)
             }
 
             syncedCount == 0 -> {
@@ -191,14 +370,9 @@ internal class SyncEngineImpl<T : SyncableEntity>(
 
             else -> {
                 stateMachine.transitionTo(SyncState.FAILED)
-                SyncResult.PartialFailure(
-                    syncedCount = syncedCount,
-                    failedCount = failures.size,
-                    errors = errors,
-                )
+                SyncResult.PartialFailure(syncedCount = syncedCount, failedCount = errors.size, errors = errors)
             }
         }
-    }
 
     /**
      * Normalise the state to [SyncState.SYNCING] using only legal transitions:
@@ -217,23 +391,12 @@ internal class SyncEngineImpl<T : SyncableEntity>(
         }
     }
 
-    private suspend fun pushOne(entity: T): NetworkResult<Unit> =
-        try {
-            adapter.push(listOf(entity))
-        } catch (cancellation: CancellationException) {
-            throw cancellation // never swallow cancellation — structured concurrency
-        } catch (throwable: Throwable) {
-            // The adapter contract forbids throwing, but defend the boundary:
-            // a misbehaving adapter must not crash the host app.
-            NetworkResult.UnknownError(throwable)
-        }
-
     private fun closedFailure(): SyncResult =
         SyncResult.Failure(SyncError.StorageError(IllegalStateException("SyncEngine has been closed")))
 }
 
 /**
- * Map a non-success [NetworkResult] onto the public [SyncError] vocabulary.
+ * Map a non-success push [NetworkResult] onto the public [SyncError] vocabulary.
  *
  * Note the imperfect fit for [NetworkResult.UnknownError]: the locked public
  * [SyncError] has no "unexpected" branch, so it is reported as
@@ -241,6 +404,14 @@ internal class SyncEngineImpl<T : SyncableEntity>(
  * ISSUE-014 — adding a dedicated branch is a future, source-breaking change.
  */
 private fun NetworkResult<Unit>.toSyncError(): SyncError = when (this) {
+    is NetworkResult.Success -> error("Success is not an error outcome")
+    is NetworkResult.HttpError -> SyncError.HttpError(code)
+    is NetworkResult.NetworkError -> SyncError.NetworkUnavailable
+    is NetworkResult.UnknownError -> SyncError.StorageError(cause)
+}
+
+/** As [toSyncError] but for the list-returning pull result. */
+private fun NetworkResult<List<*>>.toListSyncError(): SyncError = when (this) {
     is NetworkResult.Success -> error("Success is not an error outcome")
     is NetworkResult.HttpError -> SyncError.HttpError(code)
     is NetworkResult.NetworkError -> SyncError.NetworkUnavailable
