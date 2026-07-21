@@ -62,6 +62,11 @@ firebase.json
 secrets.properties
 *.env
 .env.*
+# GPG signing key exports (PUBLISHING.md §3 has you create these locally for
+# Maven Central signing — must never be committed).
+*.asc
+*.gpg
+signing-key*
 
 # ─── OS-specific ─────────────────────────────────────────────
 .DS_Store

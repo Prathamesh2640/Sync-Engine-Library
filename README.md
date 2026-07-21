@@ -1,7 +1,7 @@
 # SyncEngine
 
 [![Maven Central](https://img.shields.io/maven-central/v/io.github.prathamesh2640/sync-core.svg?label=Maven%20Central)](https://central.sonatype.com/namespace/io.github.prathamesh2640)
-[![CI](https://github.com/prathamesh2640/Sync-Engine-Library/actions/workflows/ci.yml/badge.svg)](https://github.com/prathamesh2640/Sync-Engine-Library/actions/workflows/ci.yml)
+[![CI](https://github.com/Prathamesh2640/Sync-Engine-Library/actions/workflows/ci.yml/badge.svg)](https://github.com/Prathamesh2640/Sync-Engine-Library/actions/workflows/ci.yml)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
 
 **An offline-first data synchronisation library for Android.**

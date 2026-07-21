@@ -91,7 +91,7 @@ mavenPublishing {
                 "operation-queue table) through a plain host @Dao — no generic base DAO."
         )
         inceptionYear.set("2026")
-        url.set("https://github.com/prathamesh2640/Sync-Engine-Library")
+        url.set("https://github.com/Prathamesh2640/Sync-Engine-Library")
 
         licenses {
             license {
@@ -105,14 +105,14 @@ mavenPublishing {
             developer {
                 id.set("prathamesh2640")
                 name.set("Prathamesh")
-                url.set("https://github.com/prathamesh2640")
+                url.set("https://github.com/Prathamesh2640")
             }
         }
 
         scm {
-            url.set("https://github.com/prathamesh2640/Sync-Engine-Library")
-            connection.set("scm:git:git://github.com/prathamesh2640/Sync-Engine-Library.git")
-            developerConnection.set("scm:git:ssh://git@github.com/prathamesh2640/Sync-Engine-Library.git")
+            url.set("https://github.com/Prathamesh2640/Sync-Engine-Library")
+            connection.set("scm:git:git://github.com/Prathamesh2640/Sync-Engine-Library.git")
+            developerConnection.set("scm:git:ssh://git@github.com/Prathamesh2640/Sync-Engine-Library.git")
         }
     }
 }

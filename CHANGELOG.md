@@ -38,4 +38,4 @@ Pre-0.1.0 development. The first published artefact will be `0.1.0`.
   testing, FAQ, and versioning.
 - SETUP.md with the developer environment requirements.
 
-[Unreleased]: https://github.com/prathamesh2640/Sync-Engine-Library/commits/main
+[Unreleased]: https://github.com/Prathamesh2640/Sync-Engine-Library/commits/main
