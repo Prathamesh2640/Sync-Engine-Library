@@ -1,5 +1,10 @@
+import com.vanniktech.maven.publish.AndroidSingleVariantLibrary
+
 plugins {
     alias(libs.plugins.android.library)
+    // F-18/F-19: Maven Central Portal publishing + API docs (javadoc.jar source).
+    alias(libs.plugins.maven.publish)
+    alias(libs.plugins.dokka)
 }
 
 android {
@@ -50,4 +55,53 @@ dependencies {
     testImplementation(libs.androidx.junit)
     testImplementation(libs.androidx.test.core)
     testImplementation(libs.robolectric)
+}
+
+// F-19: Maven Central Portal coordinates + POM.
+mavenPublishing {
+    configure(
+        AndroidSingleVariantLibrary(
+            variant = "release",
+            sourcesJar = true,
+            publishJavadocJar = true,
+        )
+    )
+
+    publishToMavenCentral()
+    signAllPublications()
+
+    coordinates("io.github.prathamesh2640", "sync-workmanager", "0.1.0")
+
+    pom {
+        name.set("SyncEngine WorkManager Scheduler")
+        description.set(
+            "WorkManager-backed background sync scheduling for SyncEngine. " +
+                "WorkManagerSyncScheduler schedules a periodic SyncWorker with a network " +
+                "constraint and exponential backoff; no WorkManager type appears in the public API."
+        )
+        inceptionYear.set("2026")
+        url.set("https://github.com/prathamesh2640/Sync-Engine-Library")
+
+        licenses {
+            license {
+                name.set("The Apache License, Version 2.0")
+                url.set("https://www.apache.org/licenses/LICENSE-2.0.txt")
+                distribution.set("https://www.apache.org/licenses/LICENSE-2.0.txt")
+            }
+        }
+
+        developers {
+            developer {
+                id.set("prathamesh2640")
+                name.set("Prathamesh")
+                url.set("https://github.com/prathamesh2640")
+            }
+        }
+
+        scm {
+            url.set("https://github.com/prathamesh2640/Sync-Engine-Library")
+            connection.set("scm:git:git://github.com/prathamesh2640/Sync-Engine-Library.git")
+            developerConnection.set("scm:git:ssh://git@github.com/prathamesh2640/Sync-Engine-Library.git")
+        }
+    }
 }

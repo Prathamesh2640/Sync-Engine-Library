@@ -1,5 +1,10 @@
+import com.vanniktech.maven.publish.AndroidSingleVariantLibrary
+
 plugins {
     alias(libs.plugins.android.library)
+    // F-18/F-19: Maven Central Portal publishing + API docs (javadoc.jar source).
+    alias(libs.plugins.maven.publish)
+    alias(libs.plugins.dokka)
 }
 
 android {
@@ -39,4 +44,60 @@ dependencies {
     testImplementation(libs.kotlinx.coroutines.test)
     // Turbine — asserts on StateFlow emissions (engine state transitions).
     testImplementation(libs.turbine)
+}
+
+// F-19: Maven Central Portal coordinates + POM. Shared boilerplate (license,
+// developer, scm) is intentionally duplicated across the 5 publishable modules
+// rather than factored into a convention plugin — see memory.md Pending Work
+// for that as a future, optional simplification.
+mavenPublishing {
+    configure(
+        AndroidSingleVariantLibrary(
+            variant = "release",
+            sourcesJar = true,
+            publishJavadocJar = true,
+        )
+    )
+
+    // Manual review on the Central Portal UI before the first release goes
+    // live — see PUBLISHING.md. Switch to publishAndReleaseToMavenCentral()
+    // once the release process is trusted.
+    publishToMavenCentral()
+    signAllPublications()
+
+    coordinates("io.github.prathamesh2640", "sync-core", "0.1.0")
+
+    pom {
+        name.set("SyncEngine Core")
+        description.set(
+            "Core contracts and engine for SyncEngine, an offline-first sync library for " +
+                "Android: SyncableEntity, sealed SyncResult/SyncError, ConflictResolver, " +
+                "SyncNetworkAdapter, LocalSyncStore, and the SyncEngine implementation itself. " +
+                "Depends only on the Kotlin stdlib and Coroutines — no Android framework classes."
+        )
+        inceptionYear.set("2026")
+        url.set("https://github.com/prathamesh2640/Sync-Engine-Library")
+
+        licenses {
+            license {
+                name.set("The Apache License, Version 2.0")
+                url.set("https://www.apache.org/licenses/LICENSE-2.0.txt")
+                distribution.set("https://www.apache.org/licenses/LICENSE-2.0.txt")
+            }
+        }
+
+        developers {
+            developer {
+                id.set("prathamesh2640")
+                name.set("Prathamesh")
+                url.set("https://github.com/prathamesh2640")
+            }
+        }
+
+        scm {
+            url.set("https://github.com/prathamesh2640/Sync-Engine-Library")
+            connection.set("scm:git:git://github.com/prathamesh2640/Sync-Engine-Library.git")
+            developerConnection.set("scm:git:ssh://git@github.com/prathamesh2640/Sync-Engine-Library.git")
+        }
+    }
 }
