@@ -20,7 +20,7 @@ ksp = "2.1.0-1.0.29"
 androidxTestCore = "1.5.0"
 # Robolectric — runs Room DAO/adapter tests on the JVM (no device/emulator),
 # so :sync-storage-room tests execute under testDebugUnitTest and in CI.
-robolectric = "4.14.1"
+robolectric = "4.16.1"
 # WorkManager — used only in :sync-workmanager for periodic background sync.
 work = "2.10.0"
 # Jetpack Compose — :sync-ui-dashboard (debug dashboard) + :sample-app UI.
