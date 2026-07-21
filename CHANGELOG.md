@@ -32,6 +32,22 @@ Pre-0.1.0 development. The first published artefact will be `0.1.0`.
 - `consumer-rules.pro` on every publishable module — R8 keeps the full public API on release builds.
 - Turbine-based `SyncEngineImplFlowTest` covering `StateFlow` emission ordering.
 
+### Security
+- `SyncEngineImpl` now enforces `SyncEngineConfig.maxRetries`: a per-entity push that fails more than
+  `maxRetries` times in a row is left `FAILED` instead of being retried on every run forever.
+- `SyncEngineImpl` caps concurrent in-flight pushes within a batch (20) independent of `batchSize`, and
+  `SyncEngineConfig.batchSize` now has an upper bound (`MAX_BATCH_SIZE` = 1000) — an unbounded batch
+  could previously open an unbounded number of simultaneous requests against the host's backend in one run.
+- `SyncEngineConfig.logLevel` is now actually wired to diagnostic logging (state transitions, error
+  codes/types, sync-job UUIDs only — never entity content, per SEC-06); previously the option was
+  validated but silently did nothing.
+- `ConflictResolver`'s KDoc documents the SEC-09 trust boundary (`remote` is network-sourced, untrusted
+  input). The sample app's `LAST_WRITE_WINS` resolver now rejects an implausibly future-dated `remote`
+  timestamp instead of trusting it outright, closing a clock-skew conflict-resolution bypass.
+- Sample app's `backup_rules.xml` / `data_extraction_rules.xml` now exclude the Room database from
+  Android backup/device-transfer, so a restored backup cannot resurrect tombstoned rows the user already
+  deleted (SEC-10 / GDPR erasure).
+
 ### Documentation
 - Apache-2.0 `LICENSE` + `NOTICE` at repository root.
 - README covering install, module structure, quick start, Java interop, ProGuard/R8, integration

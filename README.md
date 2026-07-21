@@ -299,10 +299,15 @@ Mapping: `2xx` → `Success` (pull yields the body, or an empty list on `204`); 
 
 `ConflictResolver<T : SyncableEntity>` is a single-method (`fun`) interface, so a strategy can be a lambda or a class. It must be pure — no I/O, no mutation of its arguments.
 
+**Security note:** `remote` is network-sourced, untrusted input — a compromised or clock-skewed server can send an arbitrary timestamp. A naive Last-Write-Wins that blindly trusts `remote.lastModified` lets such a server win every future conflict by reporting a timestamp far in the future. Guard against this by rejecting implausible future timestamps rather than trusting them outright:
+
 ```kotlin
-// Last-Write-Wins: the copy with the newer timestamp survives.
+// Last-Write-Wins: the newer timestamp survives, but only if remote's
+// timestamp is plausible (not further ahead of "now" than clock skew allows).
+val maxClockSkewMillis = 5 * 60 * 1000L // 5 minutes
 val lastWriteWins = ConflictResolver<Note> { local, remote ->
-    if (local.lastModified >= remote.lastModified) local else remote
+    val remoteIsPlausible = remote.lastModified <= System.currentTimeMillis() + maxClockSkewMillis
+    if (remoteIsPlausible && remote.lastModified > local.lastModified) remote else local
 }
 
 // Server-Wins: remote always wins.
@@ -314,7 +319,7 @@ val merge = ConflictResolver<Note> { local, remote ->
 }
 ```
 
-Pass a resolver to `SyncEngine.create(..., resolver = ...)` to enable two-way sync. During a run the engine pulls remote changes and, when a locally-pending entity also changed on the server, invokes the resolver; the winner is persisted `PENDING` and pushed back so both sides converge. A conflict with **no** resolver configured leaves the entity in `SyncState.CONFLICT` and is reported as `SyncError.ConflictUnresolvable`. These three strategies are demonstrated end-to-end in the sample app.
+Pass a resolver to `SyncEngine.create(..., resolver = ...)` to enable two-way sync. During a run the engine pulls remote changes and, when a locally-pending entity also changed on the server, invokes the resolver; the winner is persisted `PENDING` and pushed back so both sides converge. A conflict with **no** resolver configured leaves the entity in `SyncState.CONFLICT` and is reported as `SyncError.ConflictUnresolvable`. These three strategies (with the clock-skew guard) are demonstrated end-to-end in the sample app.
 
 ### 5. Engine results and configuration
 
@@ -339,10 +344,10 @@ The engine is configured with a type-safe DSL (all options have defaults, so `Sy
 
 ```kotlin
 val config = SyncEngineConfig {
-    batchSize = 100                 // default 50   — entities per network round trip
-    maxRetries = 5                  // default 3    — backoff retries before giving up
+    batchSize = 100                 // default 50, max 1000 — entities per network round trip (pushed at most 20 at a time)
+    maxRetries = 5                  // default 3    — consecutive per-entity failures before it's left FAILED for good
     tombstoneRetentionDays = 30     // default 30   — how long failed deletes are kept locally
-    logLevel = LogLevel.DEBUG       // default NONE — NONE < ERROR < WARN < INFO < DEBUG
+    logLevel = LogLevel.DEBUG       // default NONE — NONE < ERROR < WARN < INFO < DEBUG; job ids/state/error codes only, never entity content
 }
 ```
 

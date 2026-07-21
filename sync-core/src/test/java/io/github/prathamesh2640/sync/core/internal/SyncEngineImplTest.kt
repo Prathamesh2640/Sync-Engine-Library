@@ -146,6 +146,77 @@ class SyncEngineImplTest {
         assertEquals(SyncState.FAILED, engine.syncState.value)
     }
 
+    // --- maxRetries dead-letter (SEC hardening) --------------------------------
+
+    /** Always fails with a fixed HTTP error; counts how many pushes it saw. */
+    private class CountingHttpErrorAdapter(private val code: Int) : SyncNetworkAdapter<Note> {
+        var pushCount = 0
+            private set
+
+        override suspend fun push(payload: List<Note>): NetworkResult<Unit> {
+            pushCount++
+            return NetworkResult.HttpError(code, "boom")
+        }
+
+        override suspend fun pull(since: Long): NetworkResult<List<Note>> =
+            NetworkResult.Success(emptyList())
+
+        override suspend fun delete(ids: List<String>): NetworkResult<Unit> =
+            NetworkResult.Success(Unit)
+    }
+
+    @Test
+    fun `a permanently failing entity is retried up to maxRetries then given up on`() = runTest {
+        val adapter = CountingHttpErrorAdapter(500)
+        val config = SyncEngineConfig { maxRetries = 2 }
+        val engine = SyncEngineImpl(adapter, config, UnconfinedTestDispatcher(testScheduler))
+        engine.enqueue(note("a"))
+
+        // Attempt 1 fails (retried), attempt 2 fails (retried), attempt 3 fails
+        // (maxRetries exhausted — gives up instead of re-queueing).
+        repeat(3) { engine.triggerSync() }
+        assertEquals(3, adapter.pushCount)
+
+        // A further run must not push "a" again — it was dropped from the queue,
+        // not retried forever.
+        val result = engine.triggerSync()
+        assertEquals(SyncResult.Success(syncedCount = 0, conflictCount = 0), result)
+        assertEquals(3, adapter.pushCount)
+    }
+
+    @Test
+    fun `a later success resets the retry count so the next failure streak gets a fresh budget`() = runTest {
+        // Outcome per push, in order: fail, succeed, fail, fail.
+        val outcomes = listOf(false, true, false, false)
+        val adapter = object : SyncNetworkAdapter<Note> {
+            var pushCount = 0
+                private set
+
+            override suspend fun push(payload: List<Note>): NetworkResult<Unit> {
+                val succeed = outcomes[pushCount]
+                pushCount++
+                return if (succeed) NetworkResult.Success(Unit) else NetworkResult.HttpError(500, "boom")
+            }
+
+            override suspend fun pull(since: Long) = NetworkResult.Success(emptyList<Note>())
+            override suspend fun delete(ids: List<String>) = NetworkResult.Success(Unit)
+        }
+        val config = SyncEngineConfig { maxRetries = 1 }
+        val engine = SyncEngineImpl(adapter, config, UnconfinedTestDispatcher(testScheduler))
+        engine.enqueue(note("a"))
+
+        engine.triggerSync() // push #1 fails — attempt 1 of 1 retry, re-queued
+        engine.triggerSync() // push #2 succeeds — retry count resets; queue now empty
+        engine.enqueue(note("a")) // a fresh edit starts a new failure streak
+        engine.triggerSync() // push #3 fails — if the count truly reset, this is attempt 1 of 1: re-queued
+        engine.triggerSync() // push #4 fails — budget exhausted now, gives up
+
+        // If the success in run #2 had NOT cleared the stale count, push #3 alone
+        // would already have exceeded maxRetries and push #4 would never happen
+        // (empty queue) — so pushCount would stop at 3, not 4.
+        assertEquals(4, adapter.pushCount)
+    }
+
     // --- SEC-11: concurrent triggerSync is a no-op ----------------------------
 
     @Test

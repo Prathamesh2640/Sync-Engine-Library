@@ -26,6 +26,29 @@ class NoteResolverTest {
     }
 
     @Test
+    fun lastWriteWins_rejects_an_implausibly_future_remote_timestamp() {
+        // remote's timestamp is numerically newer, but a day ahead of "now" is
+        // far beyond plausible clock skew (SEC-09: a compromised/clock-skewed
+        // server could otherwise win every future conflict by lying about time).
+        val now = System.currentTimeMillis()
+        val local = note(ts = now, body = "local")
+        val remote = note(ts = now + 24 * 60 * 60 * 1000L, body = "remote")
+
+        assertEquals(local, NoteResolver.LAST_WRITE_WINS.resolver.resolve(local, remote))
+    }
+
+    @Test
+    fun lastWriteWins_still_accepts_a_remote_timestamp_within_clock_skew_tolerance() {
+        // A few seconds ahead is normal clock drift between devices, not an
+        // attack — remote should still win here.
+        val now = System.currentTimeMillis()
+        val local = note(ts = now, body = "local")
+        val remote = note(ts = now + 10_000L, body = "remote")
+
+        assertEquals(remote, NoteResolver.LAST_WRITE_WINS.resolver.resolve(local, remote))
+    }
+
+    @Test
     fun serverWins_always_returns_remote() {
         val local = note(ts = 100, body = "local")
         val remote = note(ts = 1, body = "remote")

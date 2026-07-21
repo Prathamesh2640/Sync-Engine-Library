@@ -3,6 +3,7 @@ package io.github.prathamesh2640.sync.core.internal
 import io.github.prathamesh2640.sync.core.adapter.ConflictResolver
 import io.github.prathamesh2640.sync.core.adapter.NetworkResult
 import io.github.prathamesh2640.sync.core.adapter.SyncNetworkAdapter
+import io.github.prathamesh2640.sync.core.engine.LogLevel
 import io.github.prathamesh2640.sync.core.engine.SyncEngine
 import io.github.prathamesh2640.sync.core.engine.SyncEngineConfig
 import io.github.prathamesh2640.sync.core.model.SyncState
@@ -21,6 +22,8 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.supervisorScope
 import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
 
@@ -43,9 +46,12 @@ import java.util.concurrent.atomic.AtomicLong
  * 2. **Pushes** the pending batch. It drains the in-memory [SyncQueue] (seeded
  *    from the [LocalSyncStore] when one is configured, including any conflict
  *    winners from step 1) and pushes each entity through the injected
- *    [SyncNetworkAdapter]. Items are pushed inside a [supervisorScope] so one
- *    item's failure never cancels its siblings (F-08); failed items are re-queued
- *    for the next run and written back as `FAILED`.
+ *    [SyncNetworkAdapter], at most [MAX_CONCURRENT_PUSHES] at a time. Items are
+ *    pushed inside a [supervisorScope] so one item's failure never cancels its
+ *    siblings (F-08); a failed item is re-queued and written back as `FAILED`,
+ *    and retried on subsequent runs up to [SyncEngineConfig.maxRetries]
+ *    consecutive failures, after which it is left `FAILED` for good rather than
+ *    retried forever.
  * 3. **Confirms deletions** (storage-backed engines only). Tombstones that pushed
  *    successfully are hard-deleted locally once [SyncNetworkAdapter.delete]
  *    confirms them on the remote.
@@ -92,6 +98,31 @@ internal class SyncEngineImpl<T : SyncableEntity>(
 
     /** Guards against concurrent runs — held for the whole duration of a run. */
     private val syncMutex = Mutex()
+
+    /**
+     * Caps how many pushes are in flight at once within a batch. Without this, a
+     * large [SyncEngineConfig.batchSize] would fan out one concurrent network call
+     * per entity — a thundering herd against the host's own backend and a socket/
+     * thread-exhaustion risk on the device.
+     */
+    private val pushSemaphore = Semaphore(MAX_CONCURRENT_PUSHES)
+
+    /**
+     * Consecutive-failure count per entity id, since the last success. Only ever
+     * read/written from [pushPhase], which only runs while [syncMutex] is held, so
+     * no extra synchronisation is needed. Backs [SyncEngineConfig.maxRetries]: once
+     * an id's count exceeds the configured limit it is no longer re-queued and is
+     * left `FAILED` rather than retried forever.
+     *
+     * In-memory by design, like [pullSince]: it resets on process death, so a
+     * long-lived engine instance (e.g. reused across periodic WorkManager runs,
+     * as [io.github.prathamesh2640.sync.core.scheduler.SyncScheduler]
+     * implementations are expected to do) is what actually bounds the retries.
+     * A `FAILED` entity is not automatically resumed after a fresh process starts
+     * a new engine instance — it stays `FAILED` in the store until the host
+     * changes it back to `PENDING` (e.g. the user edits it again).
+     */
+    private val retryCounts = HashMap<String, Int>()
 
     private val closed = AtomicBoolean(false)
 
@@ -143,6 +174,7 @@ internal class SyncEngineImpl<T : SyncableEntity>(
     }
 
     private suspend fun runOnce(): SyncResult {
+        log(LogLevel.DEBUG) { "sync run starting (store=${store != null})" }
         moveToSyncing()
 
         // Pull first so conflicts are detected while the local copy is still
@@ -175,17 +207,38 @@ internal class SyncEngineImpl<T : SyncableEntity>(
         val batch = queue.drainBatch(config.batchSize)
         if (batch.isEmpty()) return PushOutcome(syncedCount = 0, errors = emptyList())
 
-        // Push each item concurrently. supervisorScope means one failing child
-        // does not cancel the others; pushOne never throws, so awaitAll() only
-        // ever unwraps a real CancellationException (engine closed / caller
-        // cancelled), which triggerSync handles.
+        // Push each item concurrently, capped at MAX_CONCURRENT_PUSHES in flight.
+        // supervisorScope means one failing child does not cancel the others;
+        // pushOne never throws, so awaitAll() only ever unwraps a real
+        // CancellationException (engine closed / caller cancelled), which
+        // triggerSync handles.
         val outcomes: List<Pair<T, NetworkResult<Unit>>> = supervisorScope {
-            batch.map { entity -> async { entity to pushOne(entity) } }.awaitAll()
+            batch.map { entity -> async { entity to pushSemaphore.withPermit { pushOne(entity) } } }.awaitAll()
         }
 
         val failures = outcomes.filter { it.second !is NetworkResult.Success }
-        // Re-queue failed items so they are retried on the next run.
-        failures.forEach { queue.enqueue(it.first) }
+        val successes = outcomes.filter { it.second is NetworkResult.Success }
+
+        // A success clears any accumulated retry count for that id.
+        successes.forEach { retryCounts.remove(it.first.id) }
+
+        // Re-queue failed items so they are retried on the next run — unless
+        // they have now failed more than maxRetries times in a row, in which
+        // case they are left FAILED for good rather than retried forever.
+        val exhausted = HashSet<String>()
+        failures.forEach { (entity, _) ->
+            val attempts = (retryCounts[entity.id] ?: 0) + 1
+            if (attempts <= config.maxRetries) {
+                retryCounts[entity.id] = attempts
+                queue.enqueue(entity)
+            } else {
+                retryCounts.remove(entity.id) // give up; a future edit starts fresh
+                exhausted += entity.id
+            }
+        }
+        if (exhausted.isNotEmpty()) {
+            log(LogLevel.WARN) { "giving up after ${config.maxRetries} retries: ${exhausted.size} entit${if (exhausted.size == 1) "y" else "ies"}" }
+        }
 
         // Persist each entity's outcome to the durable store: SYNCED for accepted
         // items, FAILED for rejected ones. No-op without a store.
@@ -348,10 +401,12 @@ internal class SyncEngineImpl<T : SyncableEntity>(
 
     // --- Result & state -------------------------------------------------------
 
-    private suspend fun finish(errors: List<SyncError>, syncedCount: Int, conflictCount: Int): SyncResult =
-        when {
+    private suspend fun finish(errors: List<SyncError>, syncedCount: Int, conflictCount: Int): SyncResult {
+        errors.forEach { log(LogLevel.ERROR) { "sync error: ${describe(it)}" } }
+        return when {
             errors.isEmpty() -> {
                 stateMachine.transitionTo(SyncState.SYNCED)
+                log(LogLevel.INFO) { "sync finished: synced=$syncedCount conflicts=$conflictCount" }
                 SyncResult.Success(syncedCount = syncedCount, conflictCount = conflictCount)
             }
 
@@ -359,20 +414,24 @@ internal class SyncEngineImpl<T : SyncableEntity>(
             // which the host can surface distinctly from a transport/HTTP failure.
             errors.all { it is SyncError.ConflictUnresolvable } -> {
                 stateMachine.transitionTo(SyncState.CONFLICT)
+                log(LogLevel.INFO) { "sync finished: synced=$syncedCount conflicts=$conflictCount (unresolved conflicts present)" }
                 if (syncedCount == 0) SyncResult.Failure(errors.first())
                 else SyncResult.PartialFailure(syncedCount, errors.size, errors)
             }
 
             syncedCount == 0 -> {
                 stateMachine.transitionTo(SyncState.FAILED)
+                log(LogLevel.INFO) { "sync finished: synced=0 failed=${errors.size}" }
                 SyncResult.Failure(errors.first())
             }
 
             else -> {
                 stateMachine.transitionTo(SyncState.FAILED)
+                log(LogLevel.INFO) { "sync finished: synced=$syncedCount failed=${errors.size}" }
                 SyncResult.PartialFailure(syncedCount = syncedCount, failedCount = errors.size, errors = errors)
             }
         }
+    }
 
     /**
      * Normalise the state to [SyncState.SYNCING] using only legal transitions:
@@ -393,6 +452,34 @@ internal class SyncEngineImpl<T : SyncableEntity>(
 
     private fun closedFailure(): SyncResult =
         SyncResult.Failure(SyncError.StorageError(IllegalStateException("SyncEngine has been closed")))
+
+    // --- Diagnostics (SEC-06) --------------------------------------------------
+
+    /**
+     * Emit a diagnostic line iff [config]'s configured [LogLevel] is at least as
+     * verbose as [level]. Never called with entity content, server response
+     * bodies, or auth material — only sync-job identifiers (UUIDs), state names,
+     * and error codes/types, per SEC-06. [message] is lazy so nothing is built
+     * when logging is disabled (the default, [LogLevel.NONE]).
+     */
+    private inline fun log(level: LogLevel, message: () -> String) {
+        if (level != LogLevel.NONE && config.logLevel.ordinal >= level.ordinal) {
+            println("[SyncEngine] $level: ${message()}")
+        }
+    }
+
+    /** A safe, non-PII description of [error] — codes/types/ids only, never a raw message or cause. */
+    private fun describe(error: SyncError): String = when (error) {
+        SyncError.NetworkUnavailable -> "NetworkUnavailable"
+        is SyncError.HttpError -> "HttpError(code=${error.code})"
+        is SyncError.ConflictUnresolvable -> "ConflictUnresolvable(id=${error.entityId})"
+        is SyncError.StorageError -> "StorageError(${error.cause::class.simpleName})"
+    }
+
+    private companion object {
+        /** Upper bound on simultaneous in-flight pushes within one batch (SEC-11 hardening). */
+        const val MAX_CONCURRENT_PUSHES: Int = 20
+    }
 }
 
 /**

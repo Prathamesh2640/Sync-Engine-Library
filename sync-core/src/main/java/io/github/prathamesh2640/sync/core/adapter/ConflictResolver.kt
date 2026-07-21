@@ -24,6 +24,22 @@ import io.github.prathamesh2640.sync.core.model.SyncableEntity
  * they must return the same result, must not perform I/O, and must not mutate
  * either argument. The engine may call [resolve] off the main thread.
  *
+ * ### Security — `remote` is untrusted input (SEC-09)
+ * `remote` came from the network. If the server is compromised or a response is
+ * tampered with in transit, [resolve] receives attacker-influenced data and its
+ * return value is written straight into local storage. A naive
+ * Last-Write-Wins strategy that blindly trusts `remote`'s timestamp lets a
+ * malicious or clock-skewed server win every future conflict forever by
+ * reporting a timestamp far in the future. Implementations that compare
+ * timestamps should:
+ * - treat equal (or missing/non-positive) timestamps as **local wins**, never
+ *   remote, so an ambiguous comparison cannot silently discard local data;
+ * - reject or clamp a `remote` timestamp that is implausibly far in the future
+ *   relative to the device clock, rather than trusting it outright.
+ *
+ * See `NoteResolver.LAST_WRITE_WINS` in the sample app for a resolver that
+ * applies this clock-skew guard.
+ *
  * @param T the concrete [SyncableEntity] type this resolver reconciles.
  */
 public fun interface ConflictResolver<T : SyncableEntity> {

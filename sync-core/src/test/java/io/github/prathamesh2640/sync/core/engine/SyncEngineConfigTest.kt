@@ -70,6 +70,23 @@ class SyncEngineConfigTest {
     }
 
     @Test
+    fun `batchSize must not exceed MAX_BATCH_SIZE`() {
+        val ex = assertThrows(IllegalArgumentException::class.java) {
+            SyncEngineConfig { batchSize = SyncEngineConfig.MAX_BATCH_SIZE + 1 }
+        }
+        assertEquals(
+            "batchSize must be <= ${SyncEngineConfig.MAX_BATCH_SIZE}, was ${SyncEngineConfig.MAX_BATCH_SIZE + 1}",
+            ex.message,
+        )
+    }
+
+    @Test
+    fun `batchSize at exactly MAX_BATCH_SIZE is allowed`() {
+        val config = SyncEngineConfig { batchSize = SyncEngineConfig.MAX_BATCH_SIZE }
+        assertEquals(SyncEngineConfig.MAX_BATCH_SIZE, config.batchSize)
+    }
+
+    @Test
     fun `maxRetries may not be negative`() {
         assertThrows(IllegalArgumentException::class.java) {
             SyncEngineConfig { maxRetries = -1 }
