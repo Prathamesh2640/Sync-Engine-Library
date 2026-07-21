@@ -8,7 +8,7 @@ junitVersion = "1.1.5"
 espressoCore = "3.5.1"
 appcompat = "1.6.1"
 material = "1.10.0"
-room = "2.7.1"
+room = "2.8.4"
 # Retrofit — used only in :sync-network-retrofit (OkHttp comes transitively).
 retrofit = "2.11.0"
 # OkHttp MockWebServer — test-only, exercises the adapter over real HTTP on the JVM.
