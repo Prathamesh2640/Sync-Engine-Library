@@ -179,7 +179,7 @@ dependencyResolutionManagement {
 And in `app/build.gradle.kts`:
 ```kotlin
 dependencies {
-    implementation("io.github.prathamesh2640.sync:sync-core:1.0.0")
+    implementation("io.github.prathamesh2640:sync-core:0.1.0")
 }
 ```
 
@@ -215,7 +215,16 @@ In Android Studio Logcat: click the filter dropdown → **Edit Filter Configurat
 
 ---
 
-## 12. Troubleshooting
+## 12. Publishing to Maven Central
+
+Publishing itself (Central Portal account, GPG signing key, credentials, and the actual release
+mechanics) is documented separately in [`PUBLISHING.md`](PUBLISHING.md) and
+[`RELEASE_CHECKLIST.md`](RELEASE_CHECKLIST.md) — it's maintainer-only and not needed to build or
+contribute to the project day-to-day. All 5 publishable modules already apply the
+`com.vanniktech.maven.publish` and `org.jetbrains.dokka` plugins (`build.gradle.kts`); `./gradlew
+publishToMavenLocal` (Section 9 above) works today without any of the Central-specific setup.
+
+## 13. Troubleshooting
 
 **Build fails with `Could not find com.android.tools.build:gradle`**
 → Ensure you have a working internet connection on first sync. The Gradle wrapper downloads dependencies automatically.

@@ -1,5 +1,9 @@
 # SyncEngine
 
+[![Maven Central](https://img.shields.io/maven-central/v/io.github.prathamesh2640/sync-core.svg?label=Maven%20Central)](https://central.sonatype.com/namespace/io.github.prathamesh2640)
+[![CI](https://github.com/prathamesh2640/Sync-Engine-Library/actions/workflows/ci.yml/badge.svg)](https://github.com/prathamesh2640/Sync-Engine-Library/actions/workflows/ci.yml)
+[![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
+
 **An offline-first data synchronisation library for Android.**
 
 SyncEngine handles the hard parts of offline-first development: queueing local writes when the network is unavailable, pushing them to the server when connectivity returns, detecting conflicts between local and remote versions, and keeping your local database consistent throughout. Your app code works against plain Kotlin data classes — the library does the rest.
@@ -67,9 +71,29 @@ The library ships as **standard Android AARs** — nothing about your host app's
 
 ## Install
 
-The library is currently distributed from source (not yet on Maven Central). Pick the option that matches your setup.
+### Option A — Maven Central (recommended, once `0.1.0` is released)
 
-### Option A — JitPack (recommended for external consumers)
+No extra repository needed — `mavenCentral()` is already in every Android project's default repositories.
+
+**`app/build.gradle.kts`:**
+```kotlin
+dependencies {
+    // Required — the core engine
+    implementation("io.github.prathamesh2640:sync-core:0.1.0")
+
+    // Optional — pick what you need
+    implementation("io.github.prathamesh2640:sync-storage-room:0.1.0")
+    implementation("io.github.prathamesh2640:sync-network-retrofit:0.1.0")
+    implementation("io.github.prathamesh2640:sync-workmanager:0.1.0")
+
+    // Debug builds only — never ship the dashboard in production
+    debugImplementation("io.github.prathamesh2640:sync-ui-dashboard:0.1.0")
+}
+```
+
+Until the first release completes (see [`RELEASE_CHECKLIST.md`](RELEASE_CHECKLIST.md) / [`PUBLISHING.md`](PUBLISHING.md) for maintainers), use one of the options below.
+
+### Option B — JitPack (works today, before the first Central release)
 
 [JitPack](https://jitpack.io) builds the library on demand from a GitHub tag. No publishing infrastructure needed.
 
@@ -103,7 +127,7 @@ dependencies {
 
 Replace `<TAG>` with a released git tag (e.g. `1.0.0`). Once the first tag is pushed, JitPack builds the AARs automatically on first request.
 
-### Option B — Composite build (recommended for local development)
+### Option C — Composite build (recommended for local development)
 
 If you want to develop the library and your host app side by side, use Gradle's composite build. No publishing.
 
@@ -111,23 +135,23 @@ If you want to develop the library and your host app side by side, use Gradle's 
 ```kotlin
 includeBuild("../Sync-Engine-Library") {
     dependencySubstitution {
-        substitute(module("io.github.prathamesh2640.sync:sync-core"))
+        substitute(module("io.github.prathamesh2640:sync-core"))
             .using(project(":sync-core"))
-        substitute(module("io.github.prathamesh2640.sync:sync-storage-room"))
+        substitute(module("io.github.prathamesh2640:sync-storage-room"))
             .using(project(":sync-storage-room"))
-        substitute(module("io.github.prathamesh2640.sync:sync-network-retrofit"))
+        substitute(module("io.github.prathamesh2640:sync-network-retrofit"))
             .using(project(":sync-network-retrofit"))
-        substitute(module("io.github.prathamesh2640.sync:sync-workmanager"))
+        substitute(module("io.github.prathamesh2640:sync-workmanager"))
             .using(project(":sync-workmanager"))
-        substitute(module("io.github.prathamesh2640.sync:sync-ui-dashboard"))
+        substitute(module("io.github.prathamesh2640:sync-ui-dashboard"))
             .using(project(":sync-ui-dashboard"))
     }
 }
 ```
 
-Then declare the same `implementation("io.github.prathamesh2640.sync:sync-core:...")` coordinates in your app — Gradle transparently substitutes the local source.
+Then declare the same `implementation("io.github.prathamesh2640:sync-core:...")` coordinates in your app — Gradle transparently substitutes the local source.
 
-### Option C — Local Maven
+### Option D — Local Maven
 
 Publish once from the library, then consume like any Maven artifact.
 
@@ -144,7 +168,7 @@ dependencyResolutionManagement {
 }
 ```
 
-Coordinates are the same as JitPack under the `io.github.prathamesh2640.sync` group.
+Coordinates are the same as Option A, under the `io.github.prathamesh2640` group.
 
 ---
 
@@ -581,6 +605,8 @@ Contributions are welcome. Before opening a PR, please read:
 - [`SECURITY.md`](SECURITY.md) — how to report a vulnerability (**do not** open a public issue).
 
 Bug reports and small fixes are the easiest to review; large redesigns are best discussed in an issue first, since the public API is a forever promise.
+
+Maintainers cutting a release should follow [`RELEASE_CHECKLIST.md`](RELEASE_CHECKLIST.md); the Maven Central Portal account/namespace setup itself is documented in [`PUBLISHING.md`](PUBLISHING.md).
 
 ---
 
