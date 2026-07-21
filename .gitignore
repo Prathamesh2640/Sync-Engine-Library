@@ -130,5 +130,9 @@ FEATURES.md
 memory.md
 # Completion roadmap — personal dev tracker, not part of the library
 PLAN.md
+# Personal go-live walkthrough — consolidates PUBLISHING.md + RELEASE_CHECKLIST.md
+# into one linear checklist; those two committed docs are the ones other
+# contributors/maintainers see, this is just your own run-through copy.
+GO_LIVE_GUIDE.md
 # Skill update staging folder
 skill-update/
