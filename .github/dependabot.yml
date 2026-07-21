@@ -1,0 +1,21 @@
+version: 2
+updates:
+  # gradle/libs.versions.toml — the version catalog every module dependency
+  # goes through (Kotlin Library Rules: no inline version strings).
+  - package-ecosystem: "gradle"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 10
+    labels:
+      - "dependencies"
+
+  # Keep the workflow actions themselves (checkout, setup-java, setup-gradle,
+  # upload-artifact, actions-gh-pages) patched.
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    labels:
+      - "dependencies"
+      - "ci"
