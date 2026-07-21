@@ -12,4 +12,20 @@ plugins {
     // :sample-app). Applies only the Compose compiler plugin — not the standalone
     // Kotlin Android plugin (ADL-005).
     alias(libs.plugins.compose.compiler) apply false
+    // Maven Central Portal publishing (F-18) — resolvable in the 5 publishable
+    // modules; never applied at root or in :sample-app.
+    alias(libs.plugins.maven.publish) apply false
+    // Dokka — applied here (not apply-false) so the root project can run
+    // `dokkaHtmlMultiModule`, aggregating every publishable module's API docs
+    // (F-23 -> GitHub Pages). Each publishable module also applies it directly.
+    alias(libs.plugins.dokka)
+}
+
+// F-18: shared Maven coordinates group/version for every module. The 5
+// publishable modules restate these explicitly in their own `coordinates(...)`
+// call (F-19) — this `allprojects` block just keeps Gradle's own project
+// group/version (used by AAR naming, etc.) consistent with what actually ships.
+allprojects {
+    group = "io.github.prathamesh2640"
+    version = "0.1.0"
 }

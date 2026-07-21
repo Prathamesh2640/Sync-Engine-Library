@@ -34,6 +34,14 @@ lifecycleRuntimeCompose = "2.8.7"
 composeCompiler = "2.1.0"
 # Turbine — Flow-testing helper for StateFlow emission assertions (F-15).
 turbine = "1.1.0"
+# vanniktech Maven Central Portal publishing plugin (F-18/F-19) — hides the POM/
+# signing/upload boilerplate behind a `mavenPublishing {}` DSL.
+mavenPublish = "0.30.0"
+# Dokka 1.9.x (not 2.x): stable, well-documented Gradle DSL for the
+# `dokkaHtmlMultiModule` aggregation task (F-23) and vanniktech's automatic
+# javadoc.jar detection; fully compatible with the Kotlin 2.1.0 compiler used
+# here (F-18).
+dokka = "1.9.20"
 
 [libraries]
 # AndroidX — used in Android modules only (NOT in :sync-core)
@@ -91,3 +99,9 @@ android-library = { id = "com.android.library", version.ref = "agp" }
 ksp = { id = "com.google.devtools.ksp", version.ref = "ksp" }
 # Compose compiler — applied in Compose modules (:sync-ui-dashboard, :sample-app).
 compose-compiler = { id = "org.jetbrains.kotlin.plugin.compose", version.ref = "composeCompiler" }
+# Maven Central Portal publishing — applied only in the 5 publishable modules,
+# never in :sample-app (module-guide: the sample app is never published).
+maven-publish = { id = "com.vanniktech.maven.publish", version.ref = "mavenPublish" }
+# Dokka — applied at root (multi-module aggregation) and in every publishable
+# module (per-module API docs + vanniktech's javadoc.jar auto-detection).
+dokka = { id = "org.jetbrains.dokka", version.ref = "dokka" }
