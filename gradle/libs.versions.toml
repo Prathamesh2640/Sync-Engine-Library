@@ -25,7 +25,7 @@ robolectric = "4.14.1"
 work = "2.10.0"
 # Jetpack Compose — :sync-ui-dashboard (debug dashboard) + :sample-app UI.
 # The BOM aligns every Compose artifact; individual libs omit versions.
-composeBom = "2024.10.00"
+composeBom = "2026.06.01"
 activityCompose = "1.9.3"
 lifecycleRuntimeCompose = "2.8.7"
 # Compose compiler Gradle plugin — must track the Kotlin version (2.1.0). With
