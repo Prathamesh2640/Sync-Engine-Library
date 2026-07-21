@@ -1,0 +1,46 @@
+name: Release
+
+# Triggered by pushing a version tag, e.g. `git tag v0.1.0 && git push origin v0.1.0`.
+# See RELEASE_CHECKLIST.md for the full walkthrough before tagging.
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Run full test suite
+        run: ./gradlew test
+
+      # Credentials/signing key never touch disk as files — vanniktech's plugin
+      # reads them from these exact ORG_GRADLE_PROJECT_* env vars (PUBLISHING.md
+      # documents how to generate/obtain each one). Configure the four secrets
+      # below in the repo's Settings -> Secrets and variables -> Actions.
+      - name: Publish to Maven Central
+        env:
+          ORG_GRADLE_PROJECT_mavenCentralUsername: ${{ secrets.MAVEN_CENTRAL_USERNAME }}
+          ORG_GRADLE_PROJECT_mavenCentralPassword: ${{ secrets.MAVEN_CENTRAL_PASSWORD }}
+          ORG_GRADLE_PROJECT_signingInMemoryKey: ${{ secrets.SIGNING_IN_MEMORY_KEY }}
+          ORG_GRADLE_PROJECT_signingInMemoryKeyPassword: ${{ secrets.SIGNING_IN_MEMORY_KEY_PASSWORD }}
+        # publishToMavenCentral (not publishAndRelease...) uploads + validates
+        # each module and stops short of the final "Publish" click, so a bad
+        # release can still be dropped from the Central Portal UI before it
+        # goes live. Switch to publishAndReleaseToMavenCentral once trusted.
+        run: ./gradlew publishToMavenCentral --no-configuration-cache
