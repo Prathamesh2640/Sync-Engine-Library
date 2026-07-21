@@ -22,7 +22,7 @@ androidxTestCore = "1.5.0"
 # so :sync-storage-room tests execute under testDebugUnitTest and in CI.
 robolectric = "4.14.1"
 # WorkManager — used only in :sync-workmanager for periodic background sync.
-work = "2.10.0"
+work = "2.11.2"
 # Jetpack Compose — :sync-ui-dashboard (debug dashboard) + :sample-app UI.
 # The BOM aligns every Compose artifact; individual libs omit versions.
 composeBom = "2024.10.00"
