@@ -25,7 +25,7 @@ package io.github.prathamesh2640.sync.core.model
  * re-queues the entity — FAILED via exponential backoff retry, CONFLICT via
  * the host app's ConflictResolver.
  */
-enum class SyncState {
+public enum class SyncState {
 
     /**
      * The entity has local changes not yet submitted to the sync queue.

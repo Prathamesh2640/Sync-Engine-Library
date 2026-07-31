@@ -127,17 +127,14 @@ The **Run** panel shows green ticks for passing tests and red X for failures wit
 
 ---
 
-## 7. Run instrumented tests (on emulator)
+## 7. Instrumented tests
 
-The library modules have **no** instrumented (`androidTest`) tests — the Room
-adapter tests run on the JVM under Robolectric (Section 6). Instrumented tests
-apply only to `:sample-app` and need a running emulator or connected device:
+There are **none**, by design. Every test in the project runs on the JVM — the Room adapter and the
+WorkManager scheduler use Robolectric (Section 6), so `./gradlew test` covers the whole suite with no
+emulator or connected device. This is what CI runs too.
 
-```bash
-./gradlew :sample-app:connectedAndroidTest
-```
-
-Or from Android Studio: right-click the `androidTest` source set → **Run Tests**.
+If you add an `androidTest` source set later, run it with `./gradlew connectedAndroidTest` against a
+started emulator.
 
 ---
 
@@ -154,6 +151,7 @@ Output AARs are at:
 sync-core/build/outputs/aar/sync-core-release.aar
 sync-storage-room/build/outputs/aar/sync-storage-room-release.aar
 sync-network-retrofit/build/outputs/aar/sync-network-retrofit-release.aar
+sync-workmanager/build/outputs/aar/sync-workmanager-release.aar
 sync-ui-dashboard/build/outputs/aar/sync-ui-dashboard-release.aar
 ```
 
@@ -200,18 +198,26 @@ dependencies {
 
 ---
 
-## 11. Logcat filters (for GUI testing)
+## 11. Seeing engine activity in Logcat
 
-When running sample-app, filter Logcat to see sync activity:
+The engine is **silent by default** — a library should not write to a host app's log unless asked.
+Opt in by raising the log level when you build the config:
 
-| Filter | Shows |
-|---|---|
-| `tag:SyncEngine` | All engine lifecycle events |
-| `tag:SyncWorker` | WorkManager job execution |
-| `tag:SyncRoom` | Room query activity |
-| `tag:SyncNetwork` | Network adapter calls |
+```kotlin
+SyncEngineConfig { logLevel = LogLevel.DEBUG }   // NONE < ERROR < WARN < INFO < DEBUG
+```
 
-In Android Studio Logcat: click the filter dropdown → **Edit Filter Configuration** → set **Tag** to `SyncEngine`.
+`:sync-core` is framework-free (no `android.util.Log`), so it writes to stdout. On Android that
+surfaces under the **`System.out`** tag, with every line prefixed `[SyncEngine]`:
+
+```
+System.out  [SyncEngine] INFO: sync finished: synced=3 conflicts=0
+```
+
+In Android Studio Logcat, filter on `SyncEngine` (a plain text match on the message catches the
+prefix). Lines carry only state names, error codes/types, and entity ids — never entity content,
+response bodies, or auth material. The other modules do no logging of their own; WorkManager's own
+job lifecycle shows up under the `WM-` tags it emits.
 
 ---
 
@@ -256,7 +262,12 @@ backend (Room 2.7 supports KSP2). Keep Room ≥ 2.7 here; do not add `ksp.useKSP
 
 **Compose build error about the Compose compiler / Kotlin version mismatch**
 → The Compose modules (`:sync-ui-dashboard`, `:sample-app`) apply `org.jetbrains.kotlin.plugin.compose`
-(`libs.plugins.compose.compiler`, version `2.1.0`). That version must match the Kotlin version AGP 9's
-built-in Kotlin uses. Do **not** re-add the standalone Kotlin Android plugin (ADL-005) — only the Compose
-compiler plugin plus `buildFeatures { compose = true }` are needed. If the versions drift, align
-`composeCompiler` in `gradle/libs.versions.toml` with the built-in Kotlin version.
+(`libs.plugins.compose.compiler`, currently pinned to `2.1.0`). AGP 9.2.1's built-in Kotlin is **2.2.10**
+— the pin is older and builds green today, but that is the first thing to check if Compose codegen
+breaks after an AGP bump: raise `composeCompiler` in `gradle/libs.versions.toml` to match the built-in
+Kotlin version. Do **not** re-add the standalone Kotlin Android plugin (ADL-005) — only the Compose
+compiler plugin plus `buildFeatures { compose = true }` are needed.
+
+> To check which Kotlin AGP is actually using: `./gradlew :sync-core:generatePomFileForMavenPublication`
+> and read the `kotlin-stdlib` version in `sync-core/build/publications/maven/pom-default.xml` — that is
+> exactly what consumers get transitively.

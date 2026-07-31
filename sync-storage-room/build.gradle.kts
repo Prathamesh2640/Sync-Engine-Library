@@ -25,20 +25,16 @@ android {
         unitTests.isIncludeAndroidResources = true
     }
 
-    buildTypes {
-        release {
-            isMinifyEnabled = false
-            proguardFiles(
-                getDefaultProguardFile("proguard-android-optimize.txt"),
-                "proguard-rules.pro"
-            )
-        }
-    }
-
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_11
         targetCompatibility = JavaVersion.VERSION_11
     }
+}
+
+// Library hygiene: every declaration must state its visibility explicitly, so a
+// type is never public by accident. Compile error, not a warning.
+kotlin {
+    explicitApi()
 }
 
 dependencies {
@@ -81,7 +77,9 @@ mavenPublishing {
     publishToMavenCentral()
     signAllPublications()
 
-    coordinates("io.github.prathamesh2640", "sync-storage-room", "0.1.0")
+    // Version comes from the root build.gradle.kts `allprojects { version }` — the
+    // single place to bump for a release (RELEASE_CHECKLIST.md step 3).
+    coordinates("io.github.prathamesh2640", "sync-storage-room", version.toString())
 
     pom {
         name.set("SyncEngine Room Storage")
@@ -104,7 +102,8 @@ mavenPublishing {
         developers {
             developer {
                 id.set("prathamesh2640")
-                name.set("Prathamesh")
+                name.set("Prathamesh Sharma")
+                email.set("prathameshsharma1694@gmail.com")
                 url.set("https://github.com/Prathamesh2640")
             }
         }

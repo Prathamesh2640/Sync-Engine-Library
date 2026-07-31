@@ -55,8 +55,8 @@ SyncEngine targets modern Android but keeps its floor low so it works in most pr
 | Requirement | Version | Notes |
 |---|---|---|
 | **Android minSdk** | **24** (Android 7.0 Nougat) | Covers ~99% of active devices |
-| **Android targetSdk / compileSdk** | 36 (Android 15) | Newer is fine — no target-specific APIs used |
-| **Kotlin** | 2.1.0+ | Your host app can use 2.0.x if it shades stdlib; 2.1+ recommended |
+| **Android targetSdk / compileSdk** | 36 (Android 16) | Newer is fine — no target-specific APIs used |
+| **Kotlin** | 2.2.x | Built with AGP 9's built-in Kotlin (2.2.10); `kotlin-stdlib` 2.2.10 comes transitively through `sync-core`. Older host compilers warn about the newer stdlib on the classpath |
 | **Android Gradle Plugin** | 9.2.x (built-in Kotlin) | Works on AGP 8.x consumers too — the library ships pre-compiled AARs |
 | **JDK (build only)** | 17 | Runtime is Android; JDK only affects your build machine |
 | **Coroutines** | 1.8.1+ | Provided transitively through `sync-core` |
@@ -344,7 +344,7 @@ The engine is configured with a type-safe DSL (all options have defaults, so `Sy
 
 ```kotlin
 val config = SyncEngineConfig {
-    batchSize = 100                 // default 50, max 1000 — entities per network round trip (pushed at most 20 at a time)
+    batchSize = 100                 // default 50, max 1000 — entities drained per run; each is pushed as its own request, at most 20 in flight
     maxRetries = 5                  // default 3    — consecutive per-entity failures before it's left FAILED for good
     tombstoneRetentionDays = 30     // default 30   — how long failed deletes are kept locally
     logLevel = LogLevel.DEBUG       // default NONE — NONE < ERROR < WARN < INFO < DEBUG; job ids/state/error codes only, never entity content
@@ -381,7 +381,7 @@ interface NoteDao {
 }
 
 @Database(entities = [Note::class], version = 1)
-abstract class AppDatabase : SyncDatabase() {   // SyncDatabase is optional; any RoomDatabase works
+abstract class AppDatabase : RoomDatabase() {   // your own database — the library adds no schema
     abstract fun noteDao(): NoteDao
 }
 
@@ -395,6 +395,10 @@ val store = RoomSyncAdapter<Note>(
 ```
 
 The store keeps the four `SyncableEntity` columns under their default names (`id`, `syncState`, `isDeleted`, `lastModified`); do not rename them with `@ColumnInfo`. `RoomSyncAdapter` validates the table name as a SQL identifier and binds every query value (no injection risk), and `purgeExpiredTombstones` hard-deletes failed tombstones past `tombstoneRetentionDays` for GDPR erasure hygiene.
+
+The library owns no table of its own — it reads and writes yours. Engine writes run inside a Room transaction, so a `Flow` query you observe over the same table is invalidated by them exactly as it would be by your own DAO writes.
+
+> **Never call `fallbackToDestructiveMigration()`** on a database holding syncable data — it drops every table on a version bump, silently destroying unsynced local changes and tombstones. Ship explicit, additive migrations.
 
 ### 7. Background sync (WorkManager)
 
@@ -523,16 +527,16 @@ Nothing to add. Every library module ships a `consumer-rules.pro` inside its AAR
 
 ## Testing your integration
 
-The library is validated by **127 automated tests** across all six modules — all pass on the JVM (no emulator required for library modules).
+The library is validated by **134 automated tests** across all six modules — all pass on the JVM (no emulator required for library modules).
 
 | Module | Tests | Where |
 |---|---|---|
-| `:sync-core` | 98 (state machine, queue, engine, pull/push/flow) | JVM |
-| `:sync-storage-room` | 9 (Robolectric + real Room in-memory) | JVM |
+| `:sync-core` | 102 (state machine, queue, engine, pull/push/flow) | JVM |
+| `:sync-storage-room` | 10 (Robolectric + real Room in-memory) | JVM |
 | `:sync-network-retrofit` | 7 (MockWebServer) | JVM |
 | `:sync-workmanager` | 5 (`WorkManagerTestInitHelper` + Robolectric) | JVM |
 | `:sync-ui-dashboard` | 2 (state) | JVM |
-| `:sample-app` | 6 (resolvers, fake API) | JVM |
+| `:sample-app` | 8 (resolvers, fake API) | JVM |
 
 Run everything: `./gradlew test`. See [SETUP.md](SETUP.md) for the full developer setup.
 
@@ -548,7 +552,7 @@ No — `:sync-storage-room` is optional. `LocalSyncStore` is framework-free; you
 **Do I have to use Retrofit?**
 No — `:sync-network-retrofit` is optional. `SyncNetworkAdapter` has three `suspend` methods; implement them against Ktor, OkHttp, gRPC, whatever. The Retrofit module is just a convenience for the most common case.
 
-**What if I don't run without a network at all?**
+**What if my app never runs offline?**
 Then you probably do not need this library — a plain Retrofit service is enough. SyncEngine's value is durability under intermittent connectivity.
 
 **Does the engine own a thread pool?**
@@ -584,7 +588,7 @@ Room supports SQLCipher via `SupportFactory`; wire it in when you build the `Roo
 | Background scheduling (`WorkManagerSyncScheduler` in `:sync-workmanager`) | Available |
 | Debug dashboard (`SyncDashboardActivity` in `:sync-ui-dashboard`) | Available |
 
-**Build status:** all 5 library modules produce debug + release AARs; sample app produces a runnable APK. 127/127 unit tests pass.
+**Build status:** all 5 library modules produce debug + release AARs; sample app produces a runnable APK. 134/134 unit tests pass.
 
 ---
 
@@ -620,7 +624,7 @@ Maintainers cutting a release should follow [`RELEASE_CHECKLIST.md`](RELEASE_CHE
 SyncEngine is licensed under the **Apache License, Version 2.0** — see [`LICENSE`](LICENSE) and [`NOTICE`](NOTICE) at the repository root.
 
 ```
-Copyright 2026 Prathamesh
+Copyright 2026 Prathamesh Sharma
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.

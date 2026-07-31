@@ -9,7 +9,6 @@
 
 # Public API host apps hold or extend
 -keep public class io.github.prathamesh2640.sync.room.RoomSyncAdapter { *; }
--keep public class io.github.prathamesh2640.sync.room.SyncDatabase { *; }
 
 # Room generates <Db>_Impl / <Dao>_Impl classes and accesses them reflectively.
 # androidx.room ships its own consumer rules, but keep our generated Room code

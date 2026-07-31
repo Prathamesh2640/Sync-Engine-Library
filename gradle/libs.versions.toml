@@ -1,12 +1,10 @@
 [versions]
 agp = "9.2.1"
-kotlin = "2.1.0"
 coroutines = "1.8.1"
 coreKtx = "1.10.1"
 junit = "4.13.2"
 junitVersion = "1.1.5"
 espressoCore = "3.5.1"
-appcompat = "1.6.1"
 material = "1.10.0"
 room = "2.7.1"
 # Retrofit — used only in :sync-network-retrofit (OkHttp comes transitively).
@@ -46,7 +44,6 @@ dokka = "1.9.20"
 [libraries]
 # AndroidX — used in Android modules only (NOT in :sync-core)
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
-androidx-appcompat = { group = "androidx.appcompat", name = "appcompat", version.ref = "appcompat" }
 material = { group = "com.google.android.material", name = "material", version.ref = "material" }
 
 # Kotlin Coroutines
