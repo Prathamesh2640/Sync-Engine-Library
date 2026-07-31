@@ -5,8 +5,6 @@ setup lives in [`PUBLISHING.md`](PUBLISHING.md) — do that first if you haven't
 
 ## Before the first release only — go-public switch
 
-- [ ] All of F-00–F-26 in `FEATURES.md` show green (or you've consciously decided to ship without a
-      deferred item — check `memory.md` Section 8, Pending Work, for anything still open).
 - [ ] `./gradlew test assembleDebug` is green, run fresh, on your machine.
 - [ ] Central Portal namespace `io.github.prathamesh2640` shows **Verified** (`PUBLISHING.md` §1).
 - [ ] The four signing/credential secrets are set in **Settings → Secrets and variables → Actions**
@@ -20,14 +18,13 @@ setup lives in [`PUBLISHING.md`](PUBLISHING.md) — do that first if you haven't
 ## Every release
 
 1. **Decide the version number.** Semantic Versioning per README's "Versioning & stability" section.
-   Pre-1.0, minor bumps can still carry additive-only breaking risk — check `memory.md` Section 3
-   (Public API Surface) for anything added since the last tag.
+   Pre-1.0, minor bumps can still carry additive-only breaking risk — diff the public API against the
+   last tag (`git diff v<last>..HEAD -- '*/src/main/**/*.kt'`) for anything added or changed.
 2. **Update `CHANGELOG.md`.** Move everything under `[Unreleased]` into a new `## [X.Y.Z] - YYYY-MM-DD`
    section; leave `[Unreleased]` empty (or start listing what's landed since, for the next cycle).
-3. **Bump the version in every module's `mavenPublishing { coordinates(...) }` call** (`sync-core`,
-   `sync-storage-room`, `sync-network-retrofit`, `sync-workmanager`, `sync-ui-dashboard`) and in the root
-   `build.gradle.kts`'s `allprojects { version = ... }`. Keep all 5 modules on the same version — this
-   library releases them together, not independently.
+3. **Bump the version in one place:** the root `build.gradle.kts`'s `allprojects { version = ... }`.
+   All 5 publishable modules derive their `coordinates(...)` version from it, so they always release
+   together on the same version — this library does not version its modules independently.
 4. **Update the README** — the "Option A — Maven Central" code block's version numbers, and the Maven
    Central badge needs no manual edit (it resolves the latest version automatically once published).
 5. **Run the full gate one last time:**
@@ -59,6 +56,6 @@ setup lives in [`PUBLISHING.md`](PUBLISHING.md) — do that first if you haven't
 - [ ] Consider switching `release.yml` from `publishToMavenCentral` to
       `publishAndReleaseToMavenCentral` once you've done the manual-review step above a couple of times
       and trust the pipeline (see the comment in `.github/workflows/release.yml`).
-- [ ] Revisit `memory.md`'s Pending Work item on picking a replacement for the removed Binary
-      Compatibility Validator (ADL-020) — a public API accidentally broken after `1.0.0` needs a major
-      bump, and there's currently no automated gate catching that.
+- [ ] Pick a replacement for the removed Binary Compatibility Validator (it was dropped because it does
+      not support AGP 9's built-in Kotlin). A public API accidentally broken after `1.0.0` needs a major
+      bump, and there is currently no automated gate catching that.

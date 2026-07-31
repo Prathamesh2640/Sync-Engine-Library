@@ -25,11 +25,12 @@ package io.github.prathamesh2640.sync.core.engine
  *     .build();
  * ```
  *
- * @property batchSize how many entities the engine pushes/pulls per network
- *   round trip. Must be `> 0` and at most [MAX_BATCH_SIZE] — the engine pushes a
- *   batch's items concurrently (bounded separately at the implementation level),
- *   so an unbounded batch size would let a single run open an unbounded number
- *   of simultaneous requests against the host's backend.
+ * @property batchSize how many pending entities one sync run drains from the
+ *   queue. Note this is **not** a per-request batch: each entity is pushed as its
+ *   own [io.github.prathamesh2640.sync.core.adapter.SyncNetworkAdapter.push] call
+ *   so a single item's failure is attributed to that item and never aborts its
+ *   siblings. `batchSize` therefore caps the work per run, not the size of a
+ *   request. Must be `> 0` and at most [MAX_BATCH_SIZE].
  * @property maxRetries how many times a [io.github.prathamesh2640.sync.core.model.SyncState.FAILED]
  *   entity is retried (with exponential backoff) before it is left failed. Must be `>= 0`.
  * @property tombstoneRetentionDays how long a confirmed-deleted (tombstoned)
@@ -88,9 +89,9 @@ public class SyncEngineConfig internal constructor(
         public const val DEFAULT_BATCH_SIZE: Int = 50
 
         /**
-         * Upper bound on [batchSize]. A single sync run pushes a batch's items
-         * concurrently, so this also caps the largest possible request fan-out
-         * from one run.
+         * Upper bound on [batchSize] — caps the total number of requests one run
+         * can issue. (How many of those are in flight at once is capped separately,
+         * and much lower, inside the engine.)
          */
         public const val MAX_BATCH_SIZE: Int = 1000
 

@@ -32,6 +32,32 @@ Pre-0.1.0 development. The first published artefact will be `0.1.0`.
 - `consumer-rules.pro` on every publishable module — R8 keeps the full public API on release builds.
 - Turbine-based `SyncEngineImplFlowTest` covering `StateFlow` emission ordering.
 
+### Fixed
+- `RoomSyncAdapter`'s raw-SQL writes (`markSyncState`, `hardDelete`, `purgeExpiredTombstones`) now run
+  inside a Room transaction, so Room refreshes its `InvalidationTracker` on commit. Previously a host
+  observing its own table with a Room `Flow` was never notified of engine writes and its UI went stale.
+- `RoomSyncAdapter.purgeExpiredTombstones` now closes its compiled `SupportSQLiteStatement`; it
+  previously leaked one native SQLite statement handle per sync run.
+- `SyncEngineConfig.batchSize`, `SyncNetworkAdapter.push` and the README described `batchSize` as
+  entities per network round trip. The engine pushes each entity as its own request (so one item's
+  failure is attributed to that item); the docs now say so.
+
+### Removed
+- `SyncDatabase` — an abstract `RoomDatabase` subclass that added no schema and no behaviour. Host
+  databases extend `RoomDatabase` directly; nothing about `RoomSyncAdapter` changes.
+- Dead per-module `buildTypes { release { … } }` blocks and the empty `proguard-rules.pro` files they
+  referenced. `isMinifyEnabled = false` is already the default for library modules, so the whole block
+  was a no-op; `consumer-rules.pro` (the file that actually ships in the AAR) is untouched.
+- Unused `androidx-appcompat` version-catalog entry.
+
+### Changed
+- The release version is declared in exactly one place — the root `build.gradle.kts`'s
+  `allprojects { version }`. All 5 publishable modules derive their `coordinates(...)` version from it,
+  instead of each restating the literal.
+- Every publishable module now compiles under Kotlin's `explicitApi()` strict mode, so a declaration
+  can never become part of the public API by omission. `SyncState` and `SyncableEntity` (which relied
+  on the implicit default) now state `public` explicitly — no visibility actually changed.
+
 ### Security
 - `SyncEngineImpl` now enforces `SyncEngineConfig.maxRetries`: a per-entity push that fails more than
   `maxRetries` times in a row is left `FAILED` instead of being retried on every run forever.
@@ -49,6 +75,17 @@ Pre-0.1.0 development. The first published artefact will be `0.1.0`.
   deleted (SEC-10 / GDPR erasure).
 
 ### Documentation
+- Security/conduct reports, the Apache-2.0 copyright line, and every module's POM `<developer>` block
+  now name the maintainer (Prathamesh Sharma) and route to his address; `SECURITY.md` and
+  `CODE_OF_CONDUCT.md` previously listed an unrelated fallback email.
+- Corrected the stated Kotlin requirement: AGP 9.2.1's built-in Kotlin is 2.2.10 and consumers receive
+  `kotlin-stdlib` 2.2.10 transitively, not the 2.1.0 the README and version catalog implied. Removed the
+  dangling `kotlin` catalog entry, which no module referenced.
+- Corrected the test counts (134), the SDK 36 platform name (Android 16), the AAR output list (was
+  missing `:sync-workmanager`), the instrumented-test section (there are none — everything runs on the
+  JVM), and replaced a Logcat filter table that documented four log tags the library never emitted.
+- `RELEASE_CHECKLIST.md` no longer links `FEATURES.md` / `memory.md`, which are gitignored and therefore
+  absent for anyone who clones the repository.
 - Apache-2.0 `LICENSE` + `NOTICE` at repository root.
 - README covering install, module structure, quick start, Java interop, ProGuard/R8, integration
   testing, FAQ, and versioning.

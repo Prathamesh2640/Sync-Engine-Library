@@ -33,7 +33,7 @@ package io.github.prathamesh2640.sync.core.model
  *
  * @see SyncState for the full state transition graph.
  */
-interface SyncableEntity {
+public interface SyncableEntity {
 
     /**
      * Stable, globally unique identifier — must be a UUID v4 string.
@@ -45,7 +45,7 @@ interface SyncableEntity {
      * (Kotlin already exposes this to Java as `getId()`; no `@JvmName` is needed —
      * and `@JvmName` is not permitted on abstract interface accessors.)
      */
-    val id: String
+    public val id: String
 
     /**
      * Unix epoch milliseconds of the last local modification.
@@ -54,7 +54,7 @@ interface SyncableEntity {
      * The default Last-Write-Wins conflict resolver compares this value —
      * whichever version has the higher timestamp wins.
      */
-    val lastModified: Long
+    public val lastModified: Long
 
     /**
      * Current position of this entity in the sync lifecycle.
@@ -64,7 +64,7 @@ interface SyncableEntity {
      *
      * @see SyncState
      */
-    val syncState: SyncState
+    public val syncState: SyncState
 
     /**
      * `true` if this record has been deleted locally and is awaiting tombstone
@@ -80,6 +80,6 @@ interface SyncableEntity {
      * for boolean properties), while the other accessors use the standard
      * `getX()` names — so no `@JvmName` is required on any of them.
      */
-    val isDeleted: Boolean
+    public val isDeleted: Boolean
         get() = false
 }

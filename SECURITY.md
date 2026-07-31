@@ -32,7 +32,7 @@ coordinated-disclosure workspace.
 
 ### Fallback — email
 
-Email **worksbysarvesh@gmail.com** with the subject line prefixed `[syncengine-security]`.
+Email **prathameshsharma1694@gmail.com** with the subject line prefixed `[syncengine-security]`.
 
 Include, if possible:
 

@@ -27,7 +27,11 @@ public interface SyncNetworkAdapter<T : SyncableEntity> {
     /**
      * Push locally-changed entities to the remote.
      *
-     * @param payload the batch of entities to upload. May include tombstones
+     * The engine calls this once per entity (a single-element list) so that one
+     * item's failure is attributed to that item alone. The parameter is a list so
+     * hosts can also drive the adapter with real batches directly.
+     *
+     * @param payload the entities to upload. May include tombstones
      *   ([SyncableEntity.isDeleted] = `true`) that represent pending deletions.
      * @return [NetworkResult.Success] with [Unit] when the server accepted the
      *   batch, otherwise the matching error branch.

@@ -4,9 +4,11 @@ import android.content.Context
 import androidx.room.Dao
 import androidx.room.Database
 import androidx.room.Entity
+import androidx.room.InvalidationTracker
 import androidx.room.PrimaryKey
 import androidx.room.RawQuery
 import androidx.room.Room
+import androidx.room.RoomDatabase
 import androidx.room.Upsert
 import androidx.sqlite.db.SupportSQLiteQuery
 import androidx.test.core.app.ApplicationProvider
@@ -22,12 +24,13 @@ import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
 
 /**
  * End-to-end integration tests for [RoomSyncAdapter] against a real in-memory
  * Room database. Also the compile-time proof that a plain `@Dao` with a
- * `@RawQuery` method wires cleanly into [RoomSyncAdapter], and that [SyncDatabase]
- * works as a Room `@Database` base class.
+ * `@RawQuery` method wires cleanly into [RoomSyncAdapter].
  */
 @RunWith(AndroidJUnit4::class)
 class RoomSyncAdapterTest {
@@ -162,6 +165,32 @@ class RoomSyncAdapterTest {
         assertNull(store.getById("t"))
     }
 
+    // --- Observability ---------------------------------------------------------
+
+    /**
+     * The engine's state writes are raw SQL, not `@Query` methods, so Room only
+     * learns about them because they run inside a transaction. Without that, a host
+     * observing the table with a Room `Flow` would never see a sync-state change.
+     */
+    @Test
+    fun markSyncState_notifies_room_invalidation_observers() = runTest {
+        store.upsert(listOf(note("n", SyncState.PENDING)))
+
+        val notified = CountDownLatch(1)
+        db.invalidationTracker.addObserver(
+            object : InvalidationTracker.Observer(arrayOf("notes")) {
+                override fun onInvalidated(tables: Set<String>) = notified.countDown()
+            },
+        )
+
+        store.markSyncState("n", SyncState.SYNCED)
+
+        assertTrue(
+            "Room was not notified of the raw-SQL write — host Flows would go stale",
+            notified.await(5, TimeUnit.SECONDS),
+        )
+    }
+
     // --- SEC-05: identifier validation ----------------------------------------
 
     @Test(expected = IllegalArgumentException::class)
@@ -202,8 +231,7 @@ internal interface TestNoteDao {
     @RawQuery suspend fun rawQuery(query: SupportSQLiteQuery): List<TestNote>
 }
 
-/** Exercises [SyncDatabase] as a Room `@Database` base class. */
 @Database(entities = [TestNote::class], version = 1, exportSchema = false)
-internal abstract class TestDatabase : SyncDatabase() {
+internal abstract class TestDatabase : RoomDatabase() {
     abstract fun noteDao(): TestNoteDao
 }

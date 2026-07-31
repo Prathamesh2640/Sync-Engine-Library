@@ -21,10 +21,10 @@ plugins {
     alias(libs.plugins.dokka)
 }
 
-// F-18: shared Maven coordinates group/version for every module. The 5
-// publishable modules restate these explicitly in their own `coordinates(...)`
-// call (F-19) — this `allprojects` block just keeps Gradle's own project
-// group/version (used by AAR naming, etc.) consistent with what actually ships.
+// F-18: shared Maven coordinates group/version for every module. This is the
+// SINGLE place the release version is declared — the 5 publishable modules pass
+// `version.toString()` to their own `coordinates(...)` call (F-19), so bumping
+// here bumps everything (RELEASE_CHECKLIST.md step 3).
 allprojects {
     group = "io.github.prathamesh2640"
     version = "0.1.0"
