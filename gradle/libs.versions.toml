@@ -38,7 +38,7 @@ composeCompiler = "2.1.0"
 turbine = "1.1.0"
 # vanniktech Maven Central Portal publishing plugin (F-18/F-19) — hides the POM/
 # signing/upload boilerplate behind a `mavenPublishing {}` DSL.
-mavenPublish = "0.30.0"
+mavenPublish = "0.37.0"
 # Dokka 1.9.x (not 2.x): stable, well-documented Gradle DSL for the
 # `dokkaHtmlMultiModule` aggregation task (F-23) and vanniktech's automatic
 # javadoc.jar detection; fully compatible with the Kotlin 2.1.0 compiler used
