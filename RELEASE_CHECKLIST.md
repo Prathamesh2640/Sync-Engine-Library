@@ -56,6 +56,12 @@ setup lives in [`PUBLISHING.md`](PUBLISHING.md) — do that first if you haven't
 - [ ] Consider switching `release.yml` from `publishToMavenCentral` to
       `publishAndReleaseToMavenCentral` once you've done the manual-review step above a couple of times
       and trust the pipeline (see the comment in `.github/workflows/release.yml`).
-- [ ] Pick a replacement for the removed Binary Compatibility Validator (it was dropped because it does
-      not support AGP 9's built-in Kotlin). A public API accidentally broken after `1.0.0` needs a major
-      bump, and there is currently no automated gate catching that.
+- [ ] No automated replacement exists yet for the removed Binary Compatibility Validator. Checked
+      2026-08: upstream tracking issue [kotlin/binary-compatibility-validator#312](https://github.com/Kotlin/binary-compatibility-validator/issues/312)
+      is open, unassigned, no fix timeline — BCV hooks into the standalone `kotlin-android` plugin's
+      extension points, which AGP 9's built-in Kotlin doesn't expose. The only known workaround is a
+      third-party single-maintainer bridge plugin published the same month this was checked, with no
+      track record — deliberately not adopted (same reasoning as ADL-005/ADL-020: don't add fragile
+      third-party tooling built on the standalone-Kotlin-plugin assumption). Until #312 resolves
+      upstream, keep using step 1 above (manual API diff against the last tag) as the gate. A public API
+      accidentally broken after `1.0.0` needs a major bump, so don't skip that manual diff.

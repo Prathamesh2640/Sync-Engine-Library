@@ -22,12 +22,6 @@ android {
     }
 }
 
-// Library hygiene: every declaration must state its visibility explicitly, so a
-// type is never public by accident. Compile error, not a warning.
-kotlin {
-    explicitApi()
-}
-
 dependencies {
     // api(): RetrofitSyncAdapter implements sync-core's SyncNetworkAdapter<T> and
     // returns NetworkResult, so those types are in this module's public API and

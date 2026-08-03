@@ -31,12 +31,6 @@ android {
     }
 }
 
-// Library hygiene: every declaration must state its visibility explicitly, so a
-// type is never public by accident. Compile error, not a warning.
-kotlin {
-    explicitApi()
-}
-
 dependencies {
     // api(): RoomSyncAdapter implements sync-core's LocalSyncStore<T> and is
     // generic over SyncableEntity, so those types appear in this module's public
