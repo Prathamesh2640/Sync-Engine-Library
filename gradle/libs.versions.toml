@@ -16,7 +16,7 @@ okhttp = "4.12.0"
 # 9.2.1's built-in Kotlin compiler is actually 2.2.10 (see README/SETUP); this
 # KSP release is verified working against it (SETUP.md's KSP troubleshooting
 # entry). Bump only if a real KSP/Room codegen failure demands it.
-ksp = "2.1.0-1.0.29"
+ksp = "2.3.10"
 # AndroidX Test — provides ApplicationProvider + the AndroidJUnit4 runner that
 # delegates to Robolectric when the tests run on the JVM (local unit tests).
 androidxTestCore = "1.5.0"
