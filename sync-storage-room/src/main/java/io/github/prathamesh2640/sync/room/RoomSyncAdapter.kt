@@ -1,6 +1,7 @@
 package io.github.prathamesh2640.sync.room
 
 import androidx.room.RoomDatabase
+import androidx.room.withTransaction
 import androidx.sqlite.db.SimpleSQLiteQuery
 import androidx.sqlite.db.SupportSQLiteQuery
 import io.github.prathamesh2640.sync.core.model.SyncState
@@ -9,7 +10,6 @@ import io.github.prathamesh2640.sync.core.store.LocalSyncStore
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import java.util.concurrent.Callable
 
 /**
  * Room-backed [LocalSyncStore] — the durable, offline-first queue the engine drains.
@@ -55,10 +55,10 @@ import java.util.concurrent.Callable
  *
  * ### Observability
  * The state/delete writes are raw SQL rather than `@Query` methods, so Room does
- * not know about them statically. They are issued inside a Room transaction, which
- * makes Room refresh its [androidx.room.InvalidationTracker] on commit — a host
- * observing the table with a Room `Flow` therefore sees engine writes just as it
- * would see its own DAO writes.
+ * not know about them statically. They are issued inside a Room transaction (via
+ * [androidx.room.withTransaction]), which makes Room refresh its
+ * [androidx.room.InvalidationTracker] on commit — a host observing the table with a
+ * Room `Flow` therefore sees engine writes just as it would see its own DAO writes.
  *
  * @param database the [RoomDatabase] holding the entity table — used for the
  *   generic UPDATE/DELETE statements.
@@ -116,63 +116,47 @@ public class RoomSyncAdapter<T : SyncableEntity>(
         withContext(ioDispatcher) { upsert.invoke(entities) }
     }
 
-    override suspend fun markSyncState(id: String, state: SyncState): Unit = withContext(ioDispatcher) {
-        inTransaction {
-            database.openHelper.writableDatabase.execSQL(
-                "UPDATE `$table` SET $COL_STATE = ? WHERE $COL_ID = ?",
-                arrayOf<Any?>(state.name, id),
-            )
-        }
-    }
-
-    override suspend fun hardDelete(ids: List<String>) {
-        if (ids.isEmpty()) return
-        withContext(ioDispatcher) {
-            inTransaction {
-                val placeholders = ids.joinToString(separator = ",") { "?" }
-                database.openHelper.writableDatabase.execSQL(
-                    "DELETE FROM `$table` WHERE $COL_ID IN ($placeholders)",
-                    Array<Any?>(ids.size) { ids[it] },
-                )
-            }
-        }
-    }
-
-    override suspend fun purgeExpiredTombstones(retentionDays: Int): Int = withContext(ioDispatcher) {
-        val cutoff = clock() - retentionDays.coerceAtLeast(0).toLong() * MILLIS_PER_DAY
-        inTransaction {
-            database.openHelper.writableDatabase
-                .compileStatement(
-                    // Retention semantics: a tombstone is expired once it has existed for
-                    // at least `retentionDays` (age >= retention), i.e. lastModified <=
-                    // cutoff. Using `<=` (not `<`) makes retentionDays = 0 purge everything
-                    // immediately and treats the exact window edge as expired.
-                    "DELETE FROM `$table` " +
-                        "WHERE $COL_DELETED = 1 AND $COL_STATE = ? AND $COL_MODIFIED <= ?",
-                )
-                // A compiled statement holds a native SQLite handle; close it, or one
-                // leaks per sync run for the life of the process.
-                .use { statement ->
-                    statement.bindString(1, SyncState.FAILED.name)
-                    statement.bindLong(2, cutoff)
-                    statement.executeUpdateDelete()
-                }
-        }
-    }
-
-    /**
-     * Run a raw-SQL write inside a Room transaction.
-     *
-     * Room only refreshes its [androidx.room.InvalidationTracker] when a transaction
-     * commits. Without this, a host observing the table with a Room `Flow` would
-     * never be notified of the engine's state/delete writes, because they are issued
-     * through `openHelper` rather than a `@Query` method Room knows about.
-     */
     // ponytail: one transaction per call, so a run's per-entity markSyncState writes
     // open N transactions. SQLite wraps every bare statement in an implicit
     // transaction anyway, so this is near-free; batch into a single transaction only
     // if a profiler shows write amplification on large batches.
-    private fun <R> inTransaction(body: () -> R): R = database.runInTransaction(Callable(body))
+    override suspend fun markSyncState(id: String, state: SyncState): Unit = database.withTransaction {
+        database.openHelper.writableDatabase.execSQL(
+            "UPDATE `$table` SET $COL_STATE = ? WHERE $COL_ID = ?",
+            arrayOf<Any?>(state.name, id),
+        )
+    }
+
+    override suspend fun hardDelete(ids: List<String>) {
+        if (ids.isEmpty()) return
+        database.withTransaction {
+            val placeholders = ids.joinToString(separator = ",") { "?" }
+            database.openHelper.writableDatabase.execSQL(
+                "DELETE FROM `$table` WHERE $COL_ID IN ($placeholders)",
+                Array<Any?>(ids.size) { ids[it] },
+            )
+        }
+    }
+
+    override suspend fun purgeExpiredTombstones(retentionDays: Int): Int = database.withTransaction {
+        val cutoff = clock() - retentionDays.coerceAtLeast(0).toLong() * MILLIS_PER_DAY
+        database.openHelper.writableDatabase
+            .compileStatement(
+                // Retention semantics: a tombstone is expired once it has existed for
+                // at least `retentionDays` (age >= retention), i.e. lastModified <=
+                // cutoff. Using `<=` (not `<`) makes retentionDays = 0 purge everything
+                // immediately and treats the exact window edge as expired.
+                "DELETE FROM `$table` " +
+                    "WHERE $COL_DELETED = 1 AND $COL_STATE = ? AND $COL_MODIFIED <= ?",
+            )
+            // A compiled statement holds a native SQLite handle; close it, or one
+            // leaks per sync run for the life of the process.
+            .use { statement ->
+                statement.bindString(1, SyncState.FAILED.name)
+                statement.bindLong(2, cutoff)
+                statement.executeUpdateDelete()
+            }
+    }
 
     private companion object {
         const val COL_ID = "id"

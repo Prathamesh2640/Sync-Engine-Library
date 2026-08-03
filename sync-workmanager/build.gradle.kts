@@ -27,12 +27,6 @@ android {
     }
 }
 
-// Library hygiene: every declaration must state its visibility explicitly, so a
-// type is never public by accident. Compile error, not a warning.
-kotlin {
-    explicitApi()
-}
-
 dependencies {
     // api(): WorkManagerSyncScheduler implements sync-core's SyncScheduler and its
     // engineProvider returns a sync-core SyncEngine, so those types are in the

@@ -56,8 +56,8 @@ gpg --export-secret-keys --armor <KEY_ID> > signing-key.asc
 
 Open `signing-key.asc` — that whole block (including the `-----BEGIN PGP PRIVATE KEY BLOCK-----` /
 `-----END...-----` lines) is the value for `signingInMemoryKey` below. **Never commit this file** — it's
-already covered by this repo's `.gitignore` (`*.asc` is not currently listed; add it locally if you keep
-the export on disk, or delete it immediately after copying the value out).
+already covered by this repo's `.gitignore` (`*.asc`, `*.gpg`, `signing-key*`). Delete it once you've
+copied the value out anyway — don't leave a plaintext private key on disk longer than necessary.
 
 ## 4. Required credentials, by where they're used
 

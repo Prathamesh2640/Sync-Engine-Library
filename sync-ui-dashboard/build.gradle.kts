@@ -29,12 +29,6 @@ android {
     }
 }
 
-// Library hygiene: every declaration must state its visibility explicitly, so a
-// type is never public by accident. Compile error, not a warning.
-kotlin {
-    explicitApi()
-}
-
 dependencies {
     // implementation(): the dashboard observes sync state through sync-core
     // interfaces but exposes no sync-core type in its own public API.

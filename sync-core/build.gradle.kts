@@ -24,12 +24,6 @@ android {
     }
 }
 
-// Library hygiene: every declaration must state its visibility explicitly, so a
-// type is never public by accident. Compile error, not a warning.
-kotlin {
-    explicitApi()
-}
-
 dependencies {
     // Coroutines: api() because Flow appears in the public API surface.
     // Host apps get this transitively — they do NOT need to declare it separately.

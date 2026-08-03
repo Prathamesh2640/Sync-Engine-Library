@@ -29,3 +29,17 @@ allprojects {
     group = "io.github.prathamesh2640"
     version = "0.1.0"
 }
+
+// Library hygiene, centralized: every declaration in a publishable module must
+// state its visibility explicitly, so a type is never public by accident
+// (compile error, not a warning). Scoped to the 5 publishable modules via the
+// maven-publish plugin they already all apply — the same signal that already
+// distinguishes them from :sample-app elsewhere in this file — instead of a
+// new marker, and instead of repeating this block in each module.
+subprojects {
+    plugins.withId("com.vanniktech.maven.publish") {
+        extensions.configure<org.jetbrains.kotlin.gradle.dsl.KotlinProjectExtension> {
+            explicitApi()
+        }
+    }
+}

@@ -11,7 +11,11 @@ room = "2.7.1"
 retrofit = "2.11.0"
 # OkHttp MockWebServer — test-only, exercises the adapter over real HTTP on the JVM.
 okhttp = "4.12.0"
-# KSP release string is "<kotlin>-<ksp>"; must track the Kotlin version (2.1.0).
+# KSP release string is "<kotlin>-<ksp>", pinned to Kotlin 2.1.0 by KSP's own
+# versioning scheme — that does NOT mean the project's Kotlin is 2.1.0. AGP
+# 9.2.1's built-in Kotlin compiler is actually 2.2.10 (see README/SETUP); this
+# KSP release is verified working against it (SETUP.md's KSP troubleshooting
+# entry). Bump only if a real KSP/Room codegen failure demands it.
 ksp = "2.1.0-1.0.29"
 # AndroidX Test — provides ApplicationProvider + the AndroidJUnit4 runner that
 # delegates to Robolectric when the tests run on the JVM (local unit tests).
