@@ -44,7 +44,11 @@ import kotlinx.coroutines.withContext
  * ### Column-name contract
  * Queries reference the default Room column names for the four [SyncableEntity]
  * properties: `id`, `syncState`, `isDeleted`, `lastModified`. Do not rename them
- * with `@ColumnInfo`.
+ * with `@ColumnInfo`. All four must be real, persisted properties on the host
+ * entity — in particular, [SyncableEntity.isDeleted]'s interface-level `false`
+ * default is not enough here: it must be overridden as a constructor property
+ * (see [SyncableEntity.isDeleted]'s KDoc) or [getTombstones]/
+ * [purgeExpiredTombstones] fail at query time with "no such column".
  *
  * ### Security
  * - **SEC-05:** [tableName] is validated against a strict SQL-identifier pattern
