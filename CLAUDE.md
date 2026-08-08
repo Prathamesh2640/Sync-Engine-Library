@@ -67,8 +67,10 @@ Package root for all modules: `io.github.prathamesh2640.sync.*` (e.g.
   throws, returns `NetworkResult` (`Success`/`HttpError`/`NetworkError`/`UnknownError`).
   `:sync-network-retrofit`'s `RetrofitSyncAdapter` is a ready-made implementation that wraps host call
   references returning `retrofit2.Response` — it does not own a `Retrofit`/`OkHttpClient` instance.
-- **`LocalSyncStore<T>`** — the engine's persistence seam (`:sync-core`, framework-free). Optional; an
-  in-memory queue is the default if none is given. `:sync-storage-room`'s `RoomSyncAdapter` is the
+- **`LocalSyncStore<T>`** — the engine's persistence seam (`:sync-core`, framework-free). Optional; it
+  defaults to `null`, in which case the engine still queues and pushes entities via its internal
+  in-memory `SyncQueue`, but the pull, conflict-resolution, and tombstone-purge phases are all skipped
+  entirely — there is nowhere durable to pull into. `:sync-storage-room`'s `RoomSyncAdapter` is the
   Room-backed implementation. There is **no library-owned queue table** — the host's entity table with
   its `syncState` column *is* the queue (single-source storage, see ADL-011 in `memory.md`).
   `RoomSyncAdapter` talks to the host's DAO only through a `rawQuery` (`@RawQuery`) function reference
