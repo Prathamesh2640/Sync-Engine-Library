@@ -105,7 +105,9 @@ back to the more obvious-looking alternative:
   (ADL-005). The Compose modules apply just the Compose compiler plugin
   (`org.jetbrains.kotlin.plugin.compose`) + `buildFeatures { compose = true }`.
 - **Room must stay ≥ 2.7.1**, using the default KSP2 backend. Do not set `ksp.useKSP2=false` — that
-  combination is broken on this AGP 9 + Kotlin 2.1 toolchain.
+  combination is broken on this AGP 9 + Kotlin 2.2.10 toolchain (AGP 9.2.1's actual built-in Kotlin
+  compiler version — the `ksp = "2.1.0-1.0.29"` catalog entry is KSP's own version-string convention,
+  not the project's Kotlin version; see the comment above it in `gradle/libs.versions.toml`).
 - **`android.disallowKotlinSourceSets=false`** in `gradle.properties` is required for KSP to register
   generated sources under AGP 9's built-in Kotlin — don't remove it.
 - Room codegen is wired as `ksp(...)` / `kspTest(...)`, never `annotationProcessor`.
