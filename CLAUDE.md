@@ -44,12 +44,14 @@ sync-ui-dashboard      → sync-core
 sync-workmanager       → sync-core
 sync-network-retrofit  → sync-core
 sync-storage-room      → sync-core
-sync-core              → Kotlin stdlib + Coroutines only (pure JVM, no Android framework)
+sync-core              → Kotlin stdlib + Coroutines only (no android.* imports — see below)
 ```
 
-`:sync-core` being framework-free is load-bearing, not incidental: it's what lets the engine, state
-machine, and queue be unit-tested on plain JVM with no Robolectric/emulator. Never add an
-`android.*` import to `:sync-core`.
+`:sync-core` importing no `android.*` classes is load-bearing, not incidental: it's what lets the
+engine, state machine, and queue be unit-tested on plain JVM with no Robolectric/emulator. That's true
+despite the module itself still applying the `com.android.library` plugin and building a real AAR
+(ADL-002 in `memory.md`) — it isn't a plain Kotlin/JVM module. Never add an `android.*` import to
+`:sync-core`.
 
 Package root for all modules: `io.github.prathamesh2640.sync.*` (e.g.
 `io.github.prathamesh2640.sync.core.engine`, `...core.internal`, `...core.model`). Within `:sync-core`,
