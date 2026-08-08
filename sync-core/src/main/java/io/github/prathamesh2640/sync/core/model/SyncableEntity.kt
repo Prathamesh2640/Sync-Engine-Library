@@ -73,8 +73,13 @@ public interface SyncableEntity {
      * Entities with `isDeleted = true` must be excluded from all business-logic
      * queries but must remain in the database until the server confirms deletion.
      *
-     * Defaults to `false`. Override in your entity class to opt into soft-delete
-     * behaviour.
+     * The `false` default here only covers engines with no
+     * [io.github.prathamesh2640.sync.core.store.LocalSyncStore] (push-only, no
+     * tombstoning). **If you use `RoomSyncAdapter`, you must override this as a
+     * real, persisted property** — its `getTombstones()`/`purgeExpiredTombstones()`
+     * query a real `isDeleted` database column by name, and a column that was
+     * never declared fails at query time (`no such column: isDeleted`), not at
+     * compile time. See `RoomSyncAdapter`'s column-name contract.
      *
      * Note: Kotlin exposes this to Java as `isDeleted()` (the `is`-prefix is kept
      * for boolean properties), while the other accessors use the standard
