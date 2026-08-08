@@ -93,7 +93,10 @@ Package root for all modules: `io.github.prathamesh2640.sync.*` (e.g.
   returning `Success(0, 0)`, not queued or rejected.
 - Batch pushes are per-item (`push([one])` per entity), so one item's failure produces
   `SyncResult.PartialFailure` rather than aborting the batch.
-- The engine never throws across its public API — outcomes are `SyncResult`/`SyncError` sealed values.
+- The engine never throws across its public API for ordinary failures — outcomes are `SyncResult`/
+  `SyncError` sealed values. The one deliberate exception: `triggerSync()` rethrows
+  `CancellationException` when the *caller's* own coroutine is cancelled (structured concurrency),
+  rather than converting it to a `SyncResult`.
 - `SyncEngine` is `Closeable`; `close()` cancels its internal coroutine scope. No `GlobalScope`, no
   `runBlocking`, anywhere in library code (see `CONTRIBUTING.md` § Project philosophy).
 - Logging is opt-in only (`SyncEngineConfig.logLevel`, default `NONE`) and content-free by design — job
