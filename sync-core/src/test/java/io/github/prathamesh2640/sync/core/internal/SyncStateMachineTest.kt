@@ -3,6 +3,7 @@ package io.github.prathamesh2640.sync.core.internal
 import io.github.prathamesh2640.sync.core.model.SyncState
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -29,14 +30,9 @@ class SyncStateMachineTest {
         for ((from, to) in validTransitions) {
             val machine = SyncStateMachine(initialState = from)
 
-            val result = machine.transitionTo(to)
+            val applied = machine.transitionTo(to)
 
-            assertTrue(
-                "Expected $from -> $to to be allowed",
-                result is TransitionResult.Moved,
-            )
-            assertEquals(from, (result as TransitionResult.Moved).from)
-            assertEquals(to, result.to)
+            assertTrue("Expected $from -> $to to be allowed", applied)
             assertEquals("state flow must reflect the move", to, machine.current)
             assertEquals(to, machine.state.value)
         }
@@ -55,14 +51,9 @@ class SyncStateMachineTest {
         for ((from, to) in invalidTransitions) {
             val machine = SyncStateMachine(initialState = from)
 
-            val result = machine.transitionTo(to)
+            val applied = machine.transitionTo(to)
 
-            assertTrue(
-                "Expected $from -> $to to be rejected",
-                result is TransitionResult.Rejected,
-            )
-            assertEquals(from, (result as TransitionResult.Rejected).from)
-            assertEquals(to, result.to)
+            assertFalse("Expected $from -> $to to be rejected", applied)
             assertEquals("rejected transition must not mutate state", from, machine.current)
         }
     }
@@ -71,8 +62,8 @@ class SyncStateMachineTest {
     fun `self transitions are always invalid`() = runTest {
         for (state in SyncState.entries) {
             val machine = SyncStateMachine(initialState = state)
-            val result = machine.transitionTo(state)
-            assertTrue("$state -> $state must be rejected", result is TransitionResult.Rejected)
+            val applied = machine.transitionTo(state)
+            assertFalse("$state -> $state must be rejected", applied)
             assertEquals(state, machine.current)
         }
     }
@@ -86,9 +77,9 @@ class SyncStateMachineTest {
     fun `full happy-path cycle PENDING SYNCING SYNCED PENDING`() = runTest {
         val machine = SyncStateMachine()
 
-        assertTrue(machine.transitionTo(SyncState.SYNCING) is TransitionResult.Moved)
-        assertTrue(machine.transitionTo(SyncState.SYNCED) is TransitionResult.Moved)
-        assertTrue(machine.transitionTo(SyncState.PENDING) is TransitionResult.Moved)
+        assertTrue(machine.transitionTo(SyncState.SYNCING))
+        assertTrue(machine.transitionTo(SyncState.SYNCED))
+        assertTrue(machine.transitionTo(SyncState.PENDING))
 
         assertEquals(SyncState.PENDING, machine.current)
     }
@@ -98,9 +89,9 @@ class SyncStateMachineTest {
         val machine = SyncStateMachine()
         machine.transitionTo(SyncState.SYNCING)
 
-        assertTrue(machine.transitionTo(SyncState.FAILED) is TransitionResult.Moved)
-        assertTrue(machine.transitionTo(SyncState.PENDING) is TransitionResult.Moved)
-        assertTrue(machine.transitionTo(SyncState.SYNCING) is TransitionResult.Moved)
+        assertTrue(machine.transitionTo(SyncState.FAILED))
+        assertTrue(machine.transitionTo(SyncState.PENDING))
+        assertTrue(machine.transitionTo(SyncState.SYNCING))
     }
 
     @Test
