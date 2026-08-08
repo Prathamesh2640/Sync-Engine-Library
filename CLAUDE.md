@@ -16,7 +16,7 @@ intended behavior, trust it over guessing from code.
 ./gradlew :sync-core:test                 # single module
 ./gradlew :sync-core:testDebugUnitTest    # equivalent, explicit variant
 ./gradlew assembleDebug                   # debug build of libraries + sample-app
-./gradlew assembleRelease                 # release AARs for all 5 library modules
+./gradlew assembleRelease                 # release AARs for all 5 library modules (also builds :sample-app's release APK)
 ./gradlew :sample-app:assembleRelease     # R8/consumer-rules.pro check (also run in CI)
 ./gradlew publishToMavenLocal             # install to local Maven cache for cross-repo testing
 ./gradlew lint
