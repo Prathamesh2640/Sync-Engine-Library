@@ -57,16 +57,16 @@ internal class SyncStateMachine(initialState: SyncState = SyncState.PENDING) {
      * coroutines racing to transition can never both succeed on stale state.
      *
      * @param target the state to move to.
-     * @return [TransitionResult.Moved] if the transition was valid and applied,
-     *   or [TransitionResult.Rejected] if it was illegal (state is left unchanged).
+     * @return `true` if the transition was valid and applied, `false` if it was
+     *   illegal (state is left unchanged).
      */
-    suspend fun transitionTo(target: SyncState): TransitionResult = mutex.withLock {
+    suspend fun transitionTo(target: SyncState): Boolean = mutex.withLock {
         val from = _state.value
         if (target in allowedTargetsOf(from)) {
             _state.value = target
-            TransitionResult.Moved(from, target)
+            true
         } else {
-            TransitionResult.Rejected(from, target)
+            false
         }
     }
 
@@ -84,27 +84,4 @@ internal class SyncStateMachine(initialState: SyncState = SyncState.PENDING) {
         val SYNCING_TARGETS = setOf(SyncState.SYNCED, SyncState.FAILED, SyncState.CONFLICT)
         val TERMINAL_TARGETS = setOf(SyncState.PENDING)
     }
-}
-
-/**
- * Outcome of a [SyncStateMachine.transitionTo] call.
- *
- * Internal by design: an illegal transition is a library-internal invariant
- * violation, not a value the host app should reason about, so it is deliberately
- * kept out of the public `SyncError` hierarchy (adding a branch there would be a
- * source-breaking change to the locked public API).
- */
-internal sealed interface TransitionResult {
-
-    /** The state the machine was in before the attempt. */
-    val from: SyncState
-
-    /** The state that was requested. */
-    val to: SyncState
-
-    /** The transition was valid and has been applied. */
-    data class Moved(override val from: SyncState, override val to: SyncState) : TransitionResult
-
-    /** The transition was illegal; the machine's state is unchanged. */
-    data class Rejected(override val from: SyncState, override val to: SyncState) : TransitionResult
 }

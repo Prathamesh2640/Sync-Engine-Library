@@ -136,8 +136,8 @@ internal class SyncEngineImpl<T : SyncableEntity>(
     override val syncState: StateFlow<SyncState> get() = stateMachine.state
 
     /**
-     * Enqueue an entity for the next run. Internal seam used by tests and by the
-     * storage-backed seeding path. Not part of the public API.
+     * Enqueue an entity for the next run. Internal seam used by tests to seed the
+     * queue without a [LocalSyncStore]. Not part of the public API.
      */
     internal suspend fun enqueue(entity: T) {
         queue.enqueue(entity)
