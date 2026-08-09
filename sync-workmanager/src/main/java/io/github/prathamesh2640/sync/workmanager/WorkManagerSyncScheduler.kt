@@ -49,7 +49,7 @@ public class WorkManagerSyncScheduler @JvmOverloads constructor(
     private val intervalMinutes: Long = DEFAULT_INTERVAL_MINUTES,
 ) : SyncScheduler {
 
-    private val workManager: WorkManager = WorkManager.getInstance(context.applicationContext)
+    private val workManager: WorkManager by lazy { WorkManager.getInstance(context.applicationContext) }
 
     init {
         SyncEngineRegistry.register(engineProvider)
