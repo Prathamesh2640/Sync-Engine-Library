@@ -47,7 +47,11 @@ public sealed class NetworkResult<out T> {
      * A transport-level failure prevented a response (no connectivity, timeout,
      * connection refused, TLS failure).
      *
-     * These are typically transient — the engine retries with backoff.
+     * These are typically transient — the affected entity is left
+     * [io.github.prathamesh2640.sync.core.model.SyncState.FAILED] and retried on
+     * the next sync run (no engine-internal delay; the host
+     * [io.github.prathamesh2640.sync.core.scheduler.SyncScheduler] controls the
+     * cadence, and any backoff between runs is its concern, not the engine's).
      *
      * @property cause the underlying I/O exception.
      */

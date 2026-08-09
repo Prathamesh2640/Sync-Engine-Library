@@ -22,8 +22,10 @@ package io.github.prathamesh2640.sync.core.model
  *
  * Both [FAILED] and [CONFLICT] are independent terminal error states reached
  * directly from [SYNCING]. Each transitions back to [PENDING] when the engine
- * re-queues the entity — FAILED via exponential backoff retry, CONFLICT via
- * the host app's ConflictResolver.
+ * re-queues the entity — FAILED via immediate retry on the next
+ * [io.github.prathamesh2640.sync.core.engine.SyncEngine.triggerSync] call (no
+ * engine-internal delay; any backoff between runs is the host scheduler's
+ * concern), CONFLICT via the host app's ConflictResolver.
  */
 public enum class SyncState {
 
@@ -47,8 +49,10 @@ public enum class SyncState {
 
     /**
      * The last sync attempt failed (network error, server error, timeout).
-     * The engine retries with exponential backoff.
-     * Transitions back to [PENDING] before the next attempt.
+     * Transitions back to [PENDING] and is retried on the next
+     * [io.github.prathamesh2640.sync.core.engine.SyncEngine.triggerSync] call
+     * (up to [io.github.prathamesh2640.sync.core.engine.SyncEngineConfig.maxRetries]
+     * times) — there is no engine-internal delay between attempts.
      */
     FAILED,
 
