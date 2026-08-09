@@ -110,9 +110,9 @@ public class RoomSyncAdapter<T : SyncableEntity> @JvmOverloads constructor(
     private val colDeleted: String = validateIdentifier(deletedColumn)
     private val colModified: String = validateIdentifier(modifiedColumn)
 
-    override suspend fun getPending(): List<T> = getByState(SyncState.PENDING)
+    override suspend fun getPending(): List<T> = queryByState(SyncState.PENDING)
 
-    override suspend fun getByState(state: SyncState): List<T> = withContext(ioDispatcher) {
+    private suspend fun queryByState(state: SyncState): List<T> = withContext(ioDispatcher) {
         rawQuery(
             SimpleSQLiteQuery(
                 "SELECT * FROM `$table` WHERE $colState = ?",

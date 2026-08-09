@@ -361,7 +361,6 @@ By default the engine keeps its queue in memory. To make pending work survive pr
 // LocalSyncStore is the engine's view of persistence (in :sync-core):
 interface LocalSyncStore<T : SyncableEntity> {
     suspend fun getPending(): List<T>
-    suspend fun getByState(state: SyncState): List<T>
     suspend fun getById(id: String): T?
     suspend fun upsert(entities: List<T>)
     suspend fun getTombstones(): List<T>
