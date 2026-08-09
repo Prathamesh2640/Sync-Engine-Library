@@ -1,7 +1,6 @@
 package io.github.prathamesh2640.sync.retrofit
 
 import io.github.prathamesh2640.sync.core.adapter.NetworkResult
-import io.github.prathamesh2640.sync.core.model.SyncState
 import io.github.prathamesh2640.sync.core.model.SyncableEntity
 import kotlinx.coroutines.test.runTest
 import okhttp3.mockwebserver.MockResponse
@@ -58,7 +57,6 @@ class RetrofitSyncAdapterTest {
         id = id,
         title = "t-$id",
         lastModified = 1L,
-        syncState = SyncState.PENDING,
     )
 
     // --- success --------------------------------------------------------------
@@ -67,7 +65,7 @@ class RetrofitSyncAdapterTest {
     fun pull_success_returns_parsed_entities() = runTest {
         server.enqueue(
             MockResponse().setResponseCode(200).setBody(
-                """[{"id":"a","title":"t-a","lastModified":1,"syncState":"PENDING","isDeleted":false}]""",
+                """[{"id":"a","title":"t-a","lastModified":1}]""",
             ),
         )
 
@@ -148,8 +146,6 @@ internal data class TestNote(
     override val id: String,
     val title: String,
     override val lastModified: Long,
-    override val syncState: SyncState,
-    override val isDeleted: Boolean = false,
 ) : SyncableEntity
 
 /** Plain, concrete host-style Retrofit service the adapter wraps via method refs. */
