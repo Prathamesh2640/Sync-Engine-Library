@@ -1,5 +1,6 @@
 package io.github.prathamesh2640.sync.core.store
 
+import io.github.prathamesh2640.sync.core.model.SyncMetadata
 import io.github.prathamesh2640.sync.core.model.SyncState
 import io.github.prathamesh2640.sync.core.model.SyncableEntity
 
@@ -9,15 +10,16 @@ import io.github.prathamesh2640.sync.core.model.SyncableEntity
  * A [io.github.prathamesh2640.sync.core.engine.SyncEngine] configured with a
  * store drains it at the start of every run (so pending work survives process
  * death) and writes each entity's outcome back to it. The store is the single
- * source of truth for an entity's [SyncState]; there is no separate operation
- * queue to keep in sync.
+ * source of truth for an entity's [SyncState] — held in a [SyncMetadata] record
+ * keyed by id, separate from the host's own entity table (ADL-022) — so there is
+ * no separate operation queue to keep in sync.
  *
  * ## Why this lives in `:sync-core`
- * This interface is deliberately framework-free — it names only [SyncableEntity]
- * and [SyncState], never Room or `android.*`. That keeps `:sync-core` fully
- * JVM-testable and lets any persistence layer back the engine. The Room-backed
- * implementation (`RoomSyncAdapter`) lives in `:sync-storage-room`; tests can
- * supply a trivial in-memory fake.
+ * This interface is deliberately framework-free — it names only [SyncableEntity],
+ * [SyncMetadata] and [SyncState], never Room or `android.*`. That keeps
+ * `:sync-core` fully JVM-testable and lets any persistence layer back the
+ * engine. The Room-backed implementation (`RoomSyncAdapter`) lives in
+ * `:sync-storage-room`; tests can supply a trivial in-memory fake.
  *
  * ## Contract
  * - **Never throw across the boundary.** Wrap storage failures; the engine treats
@@ -26,18 +28,17 @@ import io.github.prathamesh2640.sync.core.model.SyncableEntity
  *   empty/no-op results, not by propagating raw `SQLiteException`s.
  * - **Suspending, dispatcher-agnostic.** Every method must be safe to call from
  *   any dispatcher and should switch to its own I/O dispatcher internally.
- * - **The four sync columns keep their default names.** Implementations that
- *   build queries over the host entity table rely on [SyncableEntity]'s
- *   properties (`id`, `lastModified`, `syncState`, `isDeleted`) mapping to
- *   identically-named columns.
+ * - **No metadata row means "not enqueued".** A host row with no [SyncMetadata]
+ *   entry has no sync history and never appears in [getPending]/[getTombstones]
+ *   — see [markSyncState].
  *
  * @param T the [SyncableEntity] subtype this store persists.
  */
 public interface LocalSyncStore<T : SyncableEntity> {
 
     /**
-     * All entities awaiting their first successful sync — i.e. those in
-     * [SyncState.PENDING].
+     * All entities awaiting their first successful sync — i.e. those whose
+     * [SyncMetadata.syncState] is [SyncState.PENDING].
      *
      * The engine seeds its in-flight batch from this list, so returning stale or
      * duplicate ids is harmless (the queue coalesces by [SyncableEntity.id]), but
@@ -57,8 +58,17 @@ public interface LocalSyncStore<T : SyncableEntity> {
     public suspend fun getById(id: String): T?
 
     /**
-     * Every soft-deleted entity still held locally — those with
-     * [SyncableEntity.isDeleted] = `true`, awaiting tombstone confirmation from
+     * Look up the [SyncMetadata] for the entity identified by [id].
+     *
+     * @param id the [SyncableEntity.id] of the row to look up.
+     * @return the metadata, or `null` if [id] has never been enqueued (i.e.
+     *   [markSyncState] or [markDeleted] has never been called for it).
+     */
+    public suspend fun getMetadata(id: String): SyncMetadata?
+
+    /**
+     * Every soft-deleted entity still held locally — those whose
+     * [SyncMetadata.isDeleted] is `true`, awaiting tombstone confirmation from
      * the server before their local row is removed.
      *
      * @return the tombstoned entities; never `null`.
@@ -72,7 +82,7 @@ public interface LocalSyncStore<T : SyncableEntity> {
      * changes (and reconciled conflict winners): the authoritative version from
      * the server is persisted so the local store converges on it. Implementations
      * back this with the host DAO's own upsert (e.g. Room's `@Upsert`), so the
-     * full entity — every column, not just the sync fields — is written.
+     * full entity — every column, not just the id/lastModified — is written.
      *
      * Passing an empty list is a no-op. Upsert is keyed on [SyncableEntity.id], so
      * re-applying the same remote entity is idempotent.
@@ -82,10 +92,14 @@ public interface LocalSyncStore<T : SyncableEntity> {
     public suspend fun upsert(entities: List<T>)
 
     /**
-     * Persist a new [SyncState] for the entity identified by [id].
+     * Persist a new [SyncState] for the entity identified by [id] — **an upsert**:
+     * it creates the [SyncMetadata] row if [id] has none yet.
      *
-     * This is the write-back path the engine uses after a run: `SYNCED` on
-     * success, `FAILED` on a failed push. A no-op if no row has that id.
+     * This is both the write-back path the engine uses after a run (`SYNCED` on
+     * success, `FAILED` on a failed push) **and** the call a host makes after
+     * every local insert/update to enqueue that entity for sync (typically
+     * `markSyncState(id, SyncState.PENDING)`) — a row's own default state no
+     * longer does this implicitly, since sync state does not live on the entity.
      *
      * @param id the [SyncableEntity.id] of the row to update.
      * @param state the state to persist.
@@ -93,7 +107,18 @@ public interface LocalSyncStore<T : SyncableEntity> {
     public suspend fun markSyncState(id: String, state: SyncState)
 
     /**
-     * Permanently remove the rows for [ids] from local storage.
+     * Mark the entity identified by [id] as a tombstone awaiting sync: sets
+     * [SyncMetadata.isDeleted] = `true` and [SyncMetadata.syncState] =
+     * [SyncState.PENDING] — an upsert, like [markSyncState]. Call this instead of
+     * setting a field when the host deletes a record locally.
+     *
+     * @param id the [SyncableEntity.id] of the row being deleted.
+     */
+    public suspend fun markDeleted(id: String)
+
+    /**
+     * Permanently remove the rows for [ids] from local storage — both the host's
+     * own entity row and its [SyncMetadata].
      *
      * Called only after the remote has confirmed a tombstone's deletion, so the
      * record is safe to drop. Passing an empty list is a no-op. Ids that match no
@@ -107,7 +132,7 @@ public interface LocalSyncStore<T : SyncableEntity> {
      * Hard-delete tombstones that have outlived their retention window, for
      * GDPR "right to erasure" hygiene (SEC-10).
      *
-     * A row is purged when it is a tombstone ([SyncableEntity.isDeleted] = `true`)
+     * A row is purged when it is a tombstone ([SyncMetadata.isDeleted] = `true`)
      * **and** in [SyncState.FAILED] **and** its [SyncableEntity.lastModified] is
      * older than [retentionDays] before now. Never-synced deletions therefore do
      * not linger on disk indefinitely.

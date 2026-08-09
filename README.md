@@ -221,7 +221,7 @@ sync-core              → Kotlin stdlib + Coroutines only  (no Android framewor
 
 ### 1. The entity contract
 
-Every data class you want to sync implements `SyncableEntity`:
+Every data class you want to sync implements `SyncableEntity` — just `id` and `lastModified`. Sync state and the soft-delete flag are **not** fields on your entity; they live in a library-owned `SyncMetadata` record, keyed by `id`, that your `LocalSyncStore` tracks separately (see § Local storage). This means adopting SyncEngine on an existing table needs no new columns on it:
 
 ```kotlin
 @Entity(tableName = "notes")
@@ -231,19 +231,18 @@ data class Note(
     val title: String,
     val body: String,
     override val lastModified: Long = System.currentTimeMillis(),
-    override val syncState: SyncState = SyncState.PENDING,
-    override val isDeleted: Boolean = false
 ) : SyncableEntity
 ```
 
-Three things to know:
+Two things to know:
 - `id` must be a **UUID v4** generated client-side at creation time. It never changes. It is the idempotency key for all network requests, so a retried push cannot create duplicates on the server.
 - `lastModified` must be updated to `System.currentTimeMillis()` every time any field changes. The default conflict resolver uses this to pick the winner.
-- `isDeleted` enables **soft deletes** (tombstones). Never remove a row from the database directly — set `isDeleted = true` and let SyncEngine push the tombstone to the server. The local row is hard-deleted only after the server confirms it. This guarantees deletions are never lost while offline.
+
+Creating or updating a row isn't enough by itself to sync it — there's no column default doing that anymore. After every local insert/update, call `store.markSyncState(id, SyncState.PENDING)` (an upsert: it creates the metadata row if one doesn't exist). For a local delete, call `store.markDeleted(id)` instead of setting a field — soft deletes (tombstones) work the same as before, just through the store instead of a field: SyncEngine pushes the tombstone to the server and hard-deletes the local row only after the server confirms it, so deletions are never lost while offline.
 
 ### 2. The sync lifecycle
 
-Every entity moves through a defined state machine:
+Every entity moves through a defined state machine, tracked in its `SyncMetadata`:
 
 ```
 PENDING ──► SYNCING ──► SYNCED
@@ -251,7 +250,7 @@ PENDING ──► SYNCING ──► SYNCED
                 └──► CONFLICT  (resolved by ConflictResolver → PENDING → pushed back)
 ```
 
-`PENDING` is the starting state for any new or modified entity. The library manages all transitions — your app code never writes `syncState` directly.
+`PENDING` is the starting state you set when enqueueing a new or modified entity (`store.markSyncState(id, SyncState.PENDING)`). The library manages every transition after that — your app code never writes `syncState` directly beyond that initial enqueue call.
 
 ### 3. Network adapter
 
@@ -363,9 +362,11 @@ By default the engine keeps its queue in memory. To make pending work survive pr
 interface LocalSyncStore<T : SyncableEntity> {
     suspend fun getPending(): List<T>
     suspend fun getById(id: String): T?
+    suspend fun getMetadata(id: String): SyncMetadata?
     suspend fun upsert(entities: List<T>)
     suspend fun getTombstones(): List<T>
-    suspend fun markSyncState(id: String, state: SyncState)
+    suspend fun markSyncState(id: String, state: SyncState)   // upsert — also how you enqueue a new/edited entity
+    suspend fun markDeleted(id: String)                        // soft-delete: call instead of setting a field
     suspend fun hardDelete(ids: List<String>)
     suspend fun purgeExpiredTombstones(retentionDays: Int): Int
 }

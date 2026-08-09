@@ -6,6 +6,7 @@ import io.github.prathamesh2640.sync.core.adapter.SyncNetworkAdapter
 import io.github.prathamesh2640.sync.core.engine.LogLevel
 import io.github.prathamesh2640.sync.core.engine.SyncEngine
 import io.github.prathamesh2640.sync.core.engine.SyncEngineConfig
+import io.github.prathamesh2640.sync.core.model.SyncMetadata
 import io.github.prathamesh2640.sync.core.model.SyncState
 import io.github.prathamesh2640.sync.core.model.SyncableEntity
 import io.github.prathamesh2640.sync.core.result.SyncError
@@ -302,7 +303,9 @@ internal class SyncEngineImpl<T : SyncableEntity>(
 
         for (entity in remote) {
             maxSeen = maxOf(maxSeen, entity.lastModified)
-            when (val decision = reconcile(store.getById(entity.id), entity)) {
+            val localEntity = store.getById(entity.id)
+            val localMeta = store.getMetadata(entity.id)
+            when (val decision = reconcile(localEntity, localMeta, entity)) {
                 is Reconciliation.Apply -> downloads += decision.winner
                 is Reconciliation.Resolved -> winners += decision.winner
                 is Reconciliation.Unresolvable -> {
@@ -339,17 +342,18 @@ internal class SyncEngineImpl<T : SyncableEntity>(
      * Decide what to do with a single remote entity given its local counterpart.
      *
      * Conflict rule (generic, content-agnostic): a local row is "clean" only when
-     * it is [SyncState.SYNCED]; any other state (PENDING/FAILED/CONFLICT) means it
-     * holds local changes the server has not accepted. A remote change for a dirty
-     * local row is a genuine conflict, resolved by the [resolver] if one is set.
-     * A clean local row (or none at all) lets the remote copy win.
+     * its [SyncMetadata.syncState] is [SyncState.SYNCED]; any other state
+     * (PENDING/FAILED/CONFLICT) means it holds local changes the server has not
+     * accepted. A remote change for a dirty local row is a genuine conflict,
+     * resolved by the [resolver] if one is set. A clean local row (or none at all,
+     * or one with no sync history yet) lets the remote copy win.
      */
-    private fun reconcile(local: T?, remote: T): Reconciliation<T> = when {
-        local == null -> Reconciliation.Apply(remote)
+    private fun reconcile(local: T?, localMeta: SyncMetadata?, remote: T): Reconciliation<T> = when {
+        local == null || localMeta == null -> Reconciliation.Apply(remote)
         // A local, unconfirmed deletion wins until the server confirms it.
-        local.isDeleted -> Reconciliation.Skip
+        localMeta.isDeleted -> Reconciliation.Skip
         // Clean local row → remote is authoritative.
-        local.syncState == SyncState.SYNCED -> Reconciliation.Apply(remote)
+        localMeta.syncState == SyncState.SYNCED -> Reconciliation.Apply(remote)
         // Dirty local row + remote change → conflict.
         else -> resolveConflict(local, remote)
     }
@@ -383,7 +387,8 @@ internal class SyncEngineImpl<T : SyncableEntity>(
      * [SyncState.SYNCED]) are hard-deleted locally once the remote confirms them.
      */
     private suspend fun confirmDeletions(store: LocalSyncStore<T>) {
-        val confirmable = store.getTombstones().filter { it.syncState == SyncState.SYNCED }
+        val tombstones = store.getTombstones()
+        val confirmable = tombstones.filter { store.getMetadata(it.id)?.syncState == SyncState.SYNCED }
         if (confirmable.isEmpty()) return
 
         val ids = confirmable.map { it.id }

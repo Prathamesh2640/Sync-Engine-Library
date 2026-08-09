@@ -3,9 +3,13 @@ package io.github.prathamesh2640.sync.core.model
 /**
  * Contract that every entity participating in offline sync must satisfy.
  *
- * Host app data classes implement this interface. The library uses these
- * properties to track the synchronisation lifecycle. The host app is
- * responsible for persisting them (e.g., as Room entity columns).
+ * Host app data classes implement this interface. The sync lifecycle itself —
+ * [SyncState] and the soft-delete tombstone flag — is **not** a field on this
+ * interface; it lives in a library-owned [SyncMetadata] record, keyed by [id],
+ * that a [io.github.prathamesh2640.sync.core.store.LocalSyncStore] tracks
+ * separately from the host's own entity table. This is deliberate (see
+ * ADL-022 in `memory.md`): a host adopting SyncEngine only needs to add
+ * [id]/[lastModified] to an existing data class, not sync-state columns.
  *
  * ## Implementing this interface
  * ```kotlin
@@ -15,8 +19,6 @@ package io.github.prathamesh2640.sync.core.model
  *     val title: String,
  *     val body: String,
  *     override val lastModified: Long = System.currentTimeMillis(),
- *     override val syncState: SyncState = SyncState.PENDING,
- *     override val isDeleted: Boolean = false
  * ) : SyncableEntity
  * ```
  *
@@ -25,11 +27,12 @@ package io.github.prathamesh2640.sync.core.model
  * as the idempotency key for all network requests, so it must be globally
  * unique and must never change after the entity is created.
  *
- * ## Soft deletes (tombstoning)
- * Do **not** remove entities from the local database when the user deletes them.
- * Set [isDeleted] = `true` and persist the record. The sync engine pushes the
- * tombstone to the server and hard-deletes the local row only after the server
- * confirms receipt. This guarantees deletions are not lost while offline.
+ * ## Enqueueing for sync
+ * Creating or updating a row is not, by itself, enough to sync it — there is no
+ * column default doing that implicitly anymore. After every local insert/update
+ * call `store.markSyncState(id, SyncState.PENDING)` (an upsert: it creates the
+ * metadata row if one doesn't exist yet). For a local delete, call
+ * `store.markDeleted(id)` instead of setting a field.
  *
  * @see SyncState for the full state transition graph.
  */
@@ -55,36 +58,4 @@ public interface SyncableEntity {
      * whichever version has the higher timestamp wins.
      */
     public val lastModified: Long
-
-    /**
-     * Current position of this entity in the sync lifecycle.
-     *
-     * The library manages all transitions. Do not write this field directly
-     * from host-app code — always drive state changes through the SyncEngine API.
-     *
-     * @see SyncState
-     */
-    public val syncState: SyncState
-
-    /**
-     * `true` if this record has been deleted locally and is awaiting tombstone
-     * confirmation from the server.
-     *
-     * Entities with `isDeleted = true` must be excluded from all business-logic
-     * queries but must remain in the database until the server confirms deletion.
-     *
-     * The `false` default here only covers engines with no
-     * [io.github.prathamesh2640.sync.core.store.LocalSyncStore] (push-only, no
-     * tombstoning). **If you use `RoomSyncAdapter`, you must override this as a
-     * real, persisted property** — its `getTombstones()`/`purgeExpiredTombstones()`
-     * query a real `isDeleted` database column by name, and a column that was
-     * never declared fails at query time (`no such column: isDeleted`), not at
-     * compile time. See `RoomSyncAdapter`'s column-name contract.
-     *
-     * Note: Kotlin exposes this to Java as `isDeleted()` (the `is`-prefix is kept
-     * for boolean properties), while the other accessors use the standard
-     * `getX()` names — so no `@JvmName` is required on any of them.
-     */
-    public val isDeleted: Boolean
-        get() = false
 }
