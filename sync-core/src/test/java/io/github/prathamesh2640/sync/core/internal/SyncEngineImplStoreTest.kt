@@ -46,6 +46,12 @@ class SyncEngineImplStoreTest {
 
         override suspend fun getMetadata(id: String): SyncMetadata? = metadata[id]
 
+        override suspend fun getByIds(ids: List<String>): Map<String, Note> =
+            ids.mapNotNull { id -> rows[id]?.let { id to it } }.toMap()
+
+        override suspend fun getMetadataByIds(ids: List<String>): Map<String, SyncMetadata> =
+            ids.mapNotNull { id -> metadata[id]?.let { id to it } }.toMap()
+
         override suspend fun upsert(entities: List<Note>) {
             entities.forEach { rows[it.id] = it }
         }

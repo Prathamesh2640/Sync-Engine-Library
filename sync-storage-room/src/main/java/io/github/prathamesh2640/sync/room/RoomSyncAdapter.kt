@@ -134,6 +134,41 @@ public class RoomSyncAdapter<T : SyncableEntity> @JvmOverloads constructor(
         ).firstOrNull()
     }
 
+    override suspend fun getByIds(ids: List<String>): Map<String, T> {
+        if (ids.isEmpty()) return emptyMap()
+        return withContext(ioDispatcher) {
+            val placeholders = ids.joinToString(separator = ",") { "?" }
+            rawQuery(
+                SimpleSQLiteQuery(
+                    "SELECT * FROM `$table` WHERE $colId IN ($placeholders)",
+                    Array<Any?>(ids.size) { ids[it] },
+                ),
+            ).associateBy { it.id }
+        }
+    }
+
+    override suspend fun getMetadataByIds(ids: List<String>): Map<String, SyncMetadata> {
+        if (ids.isEmpty()) return emptyMap()
+        return withContext(ioDispatcher) {
+            val placeholders = ids.joinToString(separator = ",") { "?" }
+            val result = LinkedHashMap<String, SyncMetadata>(ids.size)
+            database.openHelper.readableDatabase.query(
+                SimpleSQLiteQuery(
+                    "SELECT id, syncState, isDeleted FROM `$metaTable` WHERE id IN ($placeholders)",
+                    Array<Any?>(ids.size) { ids[it] },
+                ),
+            ).use { cursor ->
+                while (cursor.moveToNext()) {
+                    result[cursor.getString(0)] = SyncMetadata(
+                        syncState = SyncState.valueOf(cursor.getString(1)),
+                        isDeleted = cursor.getInt(2) != 0,
+                    )
+                }
+            }
+            result
+        }
+    }
+
     override suspend fun getMetadata(id: String): SyncMetadata? = withContext(ioDispatcher) {
         database.openHelper.readableDatabase.query(
             SimpleSQLiteQuery("SELECT syncState, isDeleted FROM `$metaTable` WHERE id = ? LIMIT 1", arrayOf<Any?>(id)),
