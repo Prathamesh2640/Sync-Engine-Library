@@ -50,6 +50,11 @@ Pre-0.1.0 development. The first published artefact will be `0.1.0`.
   gets an `IllegalStateException` from merely constructing the scheduler.
 - `SyncEngineConfig.maxConcurrentPushes` — the cap on simultaneous in-flight pushes within a batch was
   a hardcoded private `20`; it's now a configurable builder/DSL option (default unchanged).
+- `WorkManagerSyncScheduler` — network requirement and retry backoff, previously hardcoded to
+  `NetworkType.CONNECTED`/`BackoffPolicy.EXPONENTIAL` at `WorkRequest.MIN_BACKOFF_MILLIS`, are now
+  optional constructor parameters (`networkRequirement`/`backoffPolicy`/`backoffDelayMillis`, defaults
+  unchanged) via two new library-owned enums, `SyncNetworkRequirement` and `SyncBackoffPolicy` — no
+  `androidx.work` type is added to the public API.
 
 ### Removed
 - `SyncDatabase` — an abstract `RoomDatabase` subclass that added no schema and no behaviour. Host

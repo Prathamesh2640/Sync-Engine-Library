@@ -1,10 +1,8 @@
 package io.github.prathamesh2640.sync.workmanager
 
 import android.content.Context
-import androidx.work.BackoffPolicy
 import androidx.work.Constraints
 import androidx.work.ExistingPeriodicWorkPolicy
-import androidx.work.NetworkType
 import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.WorkRequest
@@ -42,11 +40,20 @@ import java.util.concurrent.TimeUnit
  * @param intervalMinutes how often to sync. WorkManager's minimum periodic
  *   interval is 15 minutes; smaller values are coerced up to it. Defaults to
  *   [DEFAULT_INTERVAL_MINUTES].
+ * @param networkRequirement network condition required before a run. Defaults
+ *   to [SyncNetworkRequirement.CONNECTED] (today's fixed behavior).
+ * @param backoffPolicy retry backoff strategy after a failed run. Defaults to
+ *   [SyncBackoffPolicy.EXPONENTIAL] (today's fixed behavior).
+ * @param backoffDelayMillis initial backoff delay in milliseconds. Defaults to
+ *   [WorkRequest.MIN_BACKOFF_MILLIS] (today's fixed behavior).
  */
 public class WorkManagerSyncScheduler @JvmOverloads constructor(
     context: Context,
     engineProvider: () -> SyncEngine,
     private val intervalMinutes: Long = DEFAULT_INTERVAL_MINUTES,
+    private val networkRequirement: SyncNetworkRequirement = SyncNetworkRequirement.CONNECTED,
+    private val backoffPolicy: SyncBackoffPolicy = SyncBackoffPolicy.EXPONENTIAL,
+    private val backoffDelayMillis: Long = WorkRequest.MIN_BACKOFF_MILLIS,
 ) : SyncScheduler {
 
     private val workManager: WorkManager by lazy { WorkManager.getInstance(context.applicationContext) }
@@ -57,7 +64,7 @@ public class WorkManagerSyncScheduler @JvmOverloads constructor(
 
     override fun schedulePeriodicSync() {
         val constraints = Constraints.Builder()
-            .setRequiredNetworkType(NetworkType.CONNECTED)
+            .setRequiredNetworkType(networkRequirement.toWorkManagerType())
             .build()
 
         val request = PeriodicWorkRequestBuilder<SyncWorker>(
@@ -66,8 +73,8 @@ public class WorkManagerSyncScheduler @JvmOverloads constructor(
         )
             .setConstraints(constraints)
             .setBackoffCriteria(
-                BackoffPolicy.EXPONENTIAL,
-                WorkRequest.MIN_BACKOFF_MILLIS,
+                backoffPolicy.toWorkManagerPolicy(),
+                backoffDelayMillis,
                 TimeUnit.MILLISECONDS,
             )
             .build()

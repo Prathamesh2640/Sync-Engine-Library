@@ -416,6 +416,18 @@ scheduler.schedulePeriodicSync()   // every 15 min (WorkManager's minimum), when
 
 The worker carries no payload — only WorkManager's own job id, never tokens or entity data. The default cadence is 15 minutes (WorkManager's minimum for periodic work); pass `intervalMinutes` to change it (values below 15 are coerced up).
 
+The network requirement and retry backoff are also configurable, without any `androidx.work` type leaking into your code — `SyncNetworkRequirement`/`SyncBackoffPolicy` are library-owned enums:
+
+```kotlin
+val scheduler = WorkManagerSyncScheduler(
+    context,
+    engineProvider = { engine },
+    networkRequirement = SyncNetworkRequirement.UNMETERED, // default CONNECTED
+    backoffPolicy = SyncBackoffPolicy.LINEAR,               // default EXPONENTIAL
+    backoffDelayMillis = 30_000L,                            // default WorkManager's minimum
+)
+```
+
 ### 8. Debug dashboard (Compose)
 
 `:sync-ui-dashboard` is a **debug-only** Jetpack Compose screen showing live sync status: current state, last-sync time, pending / failed / conflict counts, last error, and a "Sync now" button. Add it with `debugImplementation` so it never ships in release builds.
