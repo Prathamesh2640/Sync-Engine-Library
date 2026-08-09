@@ -39,9 +39,6 @@ class SyncEngineImplStoreTest {
         override suspend fun getPending(): List<Note> =
             rows.values.filter { it.syncState == SyncState.PENDING }
 
-        override suspend fun getByState(state: SyncState): List<Note> =
-            rows.values.filter { it.syncState == state }
-
         override suspend fun getById(id: String): Note? = rows[id]
 
         override suspend fun upsert(entities: List<Note>) {

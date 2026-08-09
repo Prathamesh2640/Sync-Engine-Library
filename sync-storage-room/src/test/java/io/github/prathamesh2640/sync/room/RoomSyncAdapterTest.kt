@@ -80,7 +80,6 @@ class RoomSyncAdapterTest {
         store.markSyncState("a", SyncState.SYNCED)
 
         assertTrue("no longer pending", store.getPending().isEmpty())
-        assertEquals(listOf("a"), store.getByState(SyncState.SYNCED).map { it.id })
         assertEquals(SyncState.SYNCED, store.getById("a")?.syncState)
     }
 
@@ -92,25 +91,14 @@ class RoomSyncAdapterTest {
     @Test
     fun upsert_inserts_then_replaces_by_id() = runTest {
         store.upsert(listOf(note("a", SyncState.SYNCED), note("b", SyncState.SYNCED)))
-        assertEquals(setOf("a", "b"), store.getByState(SyncState.SYNCED).map { it.id }.toSet())
+        assertEquals(SyncState.SYNCED, store.getById("a")?.syncState)
+        assertEquals(SyncState.SYNCED, store.getById("b")?.syncState)
 
         store.upsert(listOf(note("a", SyncState.SYNCED).copy(title = "updated")))
         assertEquals("updated", store.getById("a")?.title)
 
         store.upsert(emptyList()) // no-op, must not throw
         assertNotNull(store.getById("b"))
-    }
-
-    @Test
-    fun getByState_filters_correctly() = runTest {
-        val dao = db.noteDao()
-        dao.upsert(note("p", SyncState.PENDING))
-        dao.upsert(note("s", SyncState.SYNCED))
-        dao.upsert(note("f", SyncState.FAILED))
-
-        assertEquals(listOf("p"), store.getByState(SyncState.PENDING).map { it.id })
-        assertEquals(listOf("s"), store.getByState(SyncState.SYNCED).map { it.id })
-        assertEquals(listOf("f"), store.getByState(SyncState.FAILED).map { it.id })
     }
 
     // --- tombstones -----------------------------------------------------------

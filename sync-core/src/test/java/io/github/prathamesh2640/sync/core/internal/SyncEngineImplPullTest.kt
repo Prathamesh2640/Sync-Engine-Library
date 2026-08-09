@@ -36,7 +36,6 @@ class SyncEngineImplPullTest {
         val rows = LinkedHashMap<String, Note>().apply { initial.forEach { put(it.id, it) } }
 
         override suspend fun getPending() = rows.values.filter { it.syncState == SyncState.PENDING }
-        override suspend fun getByState(state: SyncState) = rows.values.filter { it.syncState == state }
         override suspend fun getById(id: String) = rows[id]
         override suspend fun upsert(entities: List<Note>) = entities.forEach { rows[it.id] = it }
         override suspend fun getTombstones() = rows.values.filter { it.isDeleted }

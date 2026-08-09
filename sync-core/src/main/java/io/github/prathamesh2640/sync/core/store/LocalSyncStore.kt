@@ -49,17 +49,6 @@ public interface LocalSyncStore<T : SyncableEntity> {
     public suspend fun getPending(): List<T>
 
     /**
-     * Every entity currently in [state].
-     *
-     * Useful for diagnostics and for driving ret/re-queue passes (e.g. reading
-     * [SyncState.FAILED] rows). Read-only — it does not mutate any state.
-     *
-     * @param state the lifecycle state to filter on.
-     * @return the matching entities; never `null`.
-     */
-    public suspend fun getByState(state: SyncState): List<T>
-
-    /**
      * Look up a single entity by its [SyncableEntity.id].
      *
      * @param id the stable UUID-v4 identifier.

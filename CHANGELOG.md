@@ -52,6 +52,8 @@ Pre-0.1.0 development. The first published artefact will be `0.1.0`.
   referenced. `isMinifyEnabled = false` is already the default for library modules, so the whole block
   was a no-op; `consumer-rules.pro` (the file that actually ships in the AAR) is untouched.
 - Unused `androidx-appcompat` version-catalog entry.
+- `LocalSyncStore.getByState` — the engine never called it; `RoomSyncAdapter`'s own `getPending()` now
+  uses a private query instead of routing through the public interface method.
 
 ### Changed
 - The release version is declared in exactly one place — the root `build.gradle.kts`'s
