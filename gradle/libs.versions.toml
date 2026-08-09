@@ -3,14 +3,14 @@ agp = "9.2.1"
 coroutines = "1.8.1"
 coreKtx = "1.10.1"
 junit = "4.13.2"
-junitVersion = "1.1.5"
-espressoCore = "3.5.1"
-material = "1.10.0"
+junitVersion = "1.3.0"
+espressoCore = "3.7.0"
+material = "1.14.0"
 room = "2.7.1"
 # Retrofit — used only in :sync-network-retrofit (OkHttp comes transitively).
-retrofit = "2.11.0"
+retrofit = "3.0.0"
 # OkHttp MockWebServer — test-only, exercises the adapter over real HTTP on the JVM.
-okhttp = "4.12.0"
+okhttp = "5.4.0"
 # KSP release string is "<kotlin>-<ksp>", pinned to Kotlin 2.1.0 by KSP's own
 # versioning scheme — that does NOT mean the project's Kotlin is 2.1.0. AGP
 # 9.2.1's built-in Kotlin compiler is actually 2.2.10 (see README/SETUP); this
@@ -27,23 +27,23 @@ robolectric = "4.16.1"
 work = "2.10.0"
 # Jetpack Compose — :sync-ui-dashboard (debug dashboard) + :sample-app UI.
 # The BOM aligns every Compose artifact; individual libs omit versions.
-composeBom = "2024.10.00"
-activityCompose = "1.9.3"
-lifecycleRuntimeCompose = "2.8.7"
+composeBom = "2026.06.01"
+activityCompose = "1.13.0"
+lifecycleRuntimeCompose = "2.11.0"
 # Compose compiler Gradle plugin — must track the Kotlin version (2.1.0). With
 # AGP 9 built-in Kotlin, this applies the Compose compiler without the standalone
 # Kotlin Android plugin (ADL-005 stays honored).
-composeCompiler = "2.1.0"
+composeCompiler = "2.4.10"
 # Turbine — Flow-testing helper for StateFlow emission assertions (F-15).
-turbine = "1.1.0"
+turbine = "1.2.1"
 # vanniktech Maven Central Portal publishing plugin (F-18/F-19) — hides the POM/
 # signing/upload boilerplate behind a `mavenPublishing {}` DSL.
-mavenPublish = "0.30.0"
+mavenPublish = "0.37.0"
 # Dokka 1.9.x (not 2.x): stable, well-documented Gradle DSL for the
 # `dokkaHtmlMultiModule` aggregation task (F-23) and vanniktech's automatic
 # javadoc.jar detection; fully compatible with the Kotlin 2.1.0 compiler used
 # here (F-18).
-dokka = "1.9.20"
+dokka = "2.2.0"
 
 [libraries]
 # AndroidX — used in Android modules only (NOT in :sync-core)
