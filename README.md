@@ -394,7 +394,7 @@ val store = RoomSyncAdapter<Note>(
 )
 ```
 
-The store keeps the four `SyncableEntity` columns under their default names (`id`, `syncState`, `isDeleted`, `lastModified`); do not rename them with `@ColumnInfo`. `RoomSyncAdapter` validates the table name as a SQL identifier and binds every query value (no injection risk), and `purgeExpiredTombstones` hard-deletes failed tombstones past `tombstoneRetentionDays` for GDPR erasure hygiene.
+The store keeps the four `SyncableEntity` columns under their default names (`id`, `syncState`, `isDeleted`, `lastModified`) unless you tell it otherwise. If your entity renames any of them with `@ColumnInfo`, pass the real names via `idColumn`/`stateColumn`/`deletedColumn`/`modifiedColumn`. `RoomSyncAdapter` validates the table name *and* every column name as a SQL identifier and binds every query value (no injection risk), and `purgeExpiredTombstones` hard-deletes failed tombstones past `tombstoneRetentionDays` for GDPR erasure hygiene.
 
 The library owns no table of its own — it reads and writes yours. Engine writes run inside a Room transaction, so a `Flow` query you observe over the same table is invalidated by them exactly as it would be by your own DAO writes.
 

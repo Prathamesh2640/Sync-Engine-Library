@@ -1,6 +1,7 @@
 package io.github.prathamesh2640.sync.room
 
 import android.content.Context
+import androidx.room.ColumnInfo
 import androidx.room.Dao
 import androidx.room.Database
 import androidx.room.Entity
@@ -202,6 +203,99 @@ class RoomSyncAdapterTest {
             upsert = db.noteDao()::upsertAll,
         )
     }
+
+    @Test(expected = IllegalArgumentException::class)
+    fun constructor_rejects_non_identifier_id_column() {
+        RoomSyncAdapter<TestNote>(
+            db,
+            tableName = "notes",
+            rawQuery = db.noteDao()::rawQuery,
+            upsert = db.noteDao()::upsertAll,
+            idColumn = "id; DROP TABLE notes",
+        )
+    }
+
+    @Test(expected = IllegalArgumentException::class)
+    fun constructor_rejects_non_identifier_state_column() {
+        RoomSyncAdapter<TestNote>(
+            db,
+            tableName = "notes",
+            rawQuery = db.noteDao()::rawQuery,
+            upsert = db.noteDao()::upsertAll,
+            stateColumn = "syncState; DROP TABLE notes",
+        )
+    }
+
+    @Test(expected = IllegalArgumentException::class)
+    fun constructor_rejects_non_identifier_deleted_column() {
+        RoomSyncAdapter<TestNote>(
+            db,
+            tableName = "notes",
+            rawQuery = db.noteDao()::rawQuery,
+            upsert = db.noteDao()::upsertAll,
+            deletedColumn = "isDeleted; DROP TABLE notes",
+        )
+    }
+
+    @Test(expected = IllegalArgumentException::class)
+    fun constructor_rejects_non_identifier_modified_column() {
+        RoomSyncAdapter<TestNote>(
+            db,
+            tableName = "notes",
+            rawQuery = db.noteDao()::rawQuery,
+            upsert = db.noteDao()::upsertAll,
+            modifiedColumn = "lastModified; DROP TABLE notes",
+        )
+    }
+
+    // --- LOCK-003: custom column names -----------------------------------------
+
+    /**
+     * End-to-end proof the column-name parameters actually reach every raw-SQL
+     * site (getPending/getById/markSyncState/getTombstones/hardDelete/
+     * purgeExpiredTombstones) against a table whose columns don't use the
+     * SyncableEntity defaults.
+     */
+    @Test
+    fun custom_column_names_are_honored_by_every_query() = runTest {
+        val renamedStore = RoomSyncAdapter<RenamedNote>(
+            database = db,
+            tableName = "renamed_notes",
+            rawQuery = db.renamedNoteDao()::rawQuery,
+            upsert = db.renamedNoteDao()::upsertAll,
+            idColumn = "note_id",
+            stateColumn = "state",
+            deletedColumn = "deleted",
+            modifiedColumn = "modified_at",
+            clock = { now },
+        )
+        val day = 24L * 60L * 60L * 1000L
+
+        renamedStore.upsert(
+            listOf(
+                RenamedNote(id = "live", lastModified = now, syncState = SyncState.PENDING, isDeleted = false),
+                RenamedNote(
+                    id = "old-tombstone",
+                    lastModified = now - 40 * day,
+                    syncState = SyncState.FAILED,
+                    isDeleted = true,
+                ),
+            ),
+        )
+
+        assertEquals(listOf("live"), renamedStore.getPending().map { it.id })
+
+        renamedStore.markSyncState("live", SyncState.SYNCED)
+        assertEquals(SyncState.SYNCED, renamedStore.getById("live")?.syncState)
+
+        assertEquals(listOf("old-tombstone"), renamedStore.getTombstones().map { it.id })
+
+        assertEquals(1, renamedStore.purgeExpiredTombstones(retentionDays = 30))
+        assertNull(renamedStore.getById("old-tombstone"))
+
+        renamedStore.hardDelete(listOf("live"))
+        assertNull(renamedStore.getById("live"))
+    }
 }
 
 // --- test-only Room schema ----------------------------------------------------
@@ -231,7 +325,23 @@ internal interface TestNoteDao {
     @RawQuery suspend fun rawQuery(query: SupportSQLiteQuery): List<TestNote>
 }
 
-@Database(entities = [TestNote::class], version = 1, exportSchema = false)
+/** Backs the LOCK-003 custom-column-name test — every column deliberately renamed. */
+@Entity(tableName = "renamed_notes")
+internal data class RenamedNote(
+    @PrimaryKey @ColumnInfo(name = "note_id") override val id: String,
+    @ColumnInfo(name = "modified_at") override val lastModified: Long,
+    @ColumnInfo(name = "state") override val syncState: SyncState,
+    @ColumnInfo(name = "deleted") override val isDeleted: Boolean = false,
+) : SyncableEntity
+
+@Dao
+internal interface RenamedNoteDao {
+    @Upsert suspend fun upsertAll(entities: List<RenamedNote>)
+    @RawQuery suspend fun rawQuery(query: SupportSQLiteQuery): List<RenamedNote>
+}
+
+@Database(entities = [TestNote::class, RenamedNote::class], version = 1, exportSchema = false)
 internal abstract class TestDatabase : RoomDatabase() {
     abstract fun noteDao(): TestNoteDao
+    abstract fun renamedNoteDao(): RenamedNoteDao
 }

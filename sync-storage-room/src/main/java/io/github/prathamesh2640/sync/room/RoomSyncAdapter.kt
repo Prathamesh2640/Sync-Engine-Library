@@ -42,17 +42,21 @@ import kotlinx.coroutines.withContext
  * ```
  *
  * ### Column-name contract
- * Queries reference the default Room column names for the four [SyncableEntity]
- * properties: `id`, `syncState`, `isDeleted`, `lastModified`. Do not rename them
- * with `@ColumnInfo`. All four must be real, persisted properties on the host
- * entity — in particular, [SyncableEntity.isDeleted]'s interface-level `false`
- * default is not enough here: it must be overridden as a constructor property
- * (see [SyncableEntity.isDeleted]'s KDoc) or [getTombstones]/
- * [purgeExpiredTombstones] fail at query time with "no such column".
+ * Queries reference the Room column names for the four [SyncableEntity]
+ * properties: `id`, `syncState`, `isDeleted`, `lastModified` by default. If your
+ * entity renames any of them with `@ColumnInfo`, pass the real name via
+ * [idColumn]/[stateColumn]/[deletedColumn]/[modifiedColumn]. All four must be
+ * real, persisted properties on the host entity — in particular,
+ * [SyncableEntity.isDeleted]'s interface-level `false` default is not enough
+ * here: it must be overridden as a constructor property (see
+ * [SyncableEntity.isDeleted]'s KDoc) or [getTombstones]/[purgeExpiredTombstones]
+ * fail at query time with "no such column".
  *
  * ### Security
- * - **SEC-05:** [tableName] is validated against a strict SQL-identifier pattern
- *   at construction; every value is bound, never string-concatenated.
+ * - **SEC-05:** [tableName] and every column-name parameter are validated against
+ *   a strict SQL-identifier pattern at construction (column names are
+ *   interpolated into raw SQL — SQLite cannot `?`-bind an identifier, only a
+ *   value); every value is bound, never string-concatenated.
  * - **SEC-10:** [purgeExpiredTombstones] hard-deletes failed tombstones once they
  *   reach the retention window (age >= `retentionDays`; `0` purges immediately) for
  *   GDPR erasure hygiene.
@@ -75,28 +79,43 @@ import kotlinx.coroutines.withContext
  *   changes and reconciled conflict winners. A full-entity write Room cannot
  *   express on a type parameter, so the concrete DAO supplies it (mirrors
  *   [rawQuery]).
+ * @param idColumn the [SyncableEntity.id] column name. Defaults to `"id"`.
+ * @param stateColumn the [SyncableEntity.syncState] column name. Defaults to
+ *   `"syncState"`.
+ * @param deletedColumn the [SyncableEntity.isDeleted] column name. Defaults to
+ *   `"isDeleted"`.
+ * @param modifiedColumn the [SyncableEntity.lastModified] column name. Defaults
+ *   to `"lastModified"`.
  * @param clock supplies "now" in epoch ms for tombstone-age math; injectable for
  *   deterministic tests. Defaults to [System.currentTimeMillis].
  * @param ioDispatcher dispatcher the blocking SQLite calls run on; injectable for
  *   tests. Defaults to [Dispatchers.IO].
  */
-public class RoomSyncAdapter<T : SyncableEntity>(
+public class RoomSyncAdapter<T : SyncableEntity> @JvmOverloads constructor(
     private val database: RoomDatabase,
     tableName: String,
     private val rawQuery: suspend (SupportSQLiteQuery) -> List<T>,
     private val upsert: suspend (List<T>) -> Unit,
+    idColumn: String = "id",
+    stateColumn: String = "syncState",
+    deletedColumn: String = "isDeleted",
+    modifiedColumn: String = "lastModified",
     private val clock: () -> Long = System::currentTimeMillis,
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
 ) : LocalSyncStore<T> {
 
     private val table: String = validateIdentifier(tableName)
+    private val colId: String = validateIdentifier(idColumn)
+    private val colState: String = validateIdentifier(stateColumn)
+    private val colDeleted: String = validateIdentifier(deletedColumn)
+    private val colModified: String = validateIdentifier(modifiedColumn)
 
     override suspend fun getPending(): List<T> = getByState(SyncState.PENDING)
 
     override suspend fun getByState(state: SyncState): List<T> = withContext(ioDispatcher) {
         rawQuery(
             SimpleSQLiteQuery(
-                "SELECT * FROM `$table` WHERE $COL_STATE = ?",
+                "SELECT * FROM `$table` WHERE $colState = ?",
                 arrayOf<Any?>(state.name),
             ),
         )
@@ -105,14 +124,14 @@ public class RoomSyncAdapter<T : SyncableEntity>(
     override suspend fun getById(id: String): T? = withContext(ioDispatcher) {
         rawQuery(
             SimpleSQLiteQuery(
-                "SELECT * FROM `$table` WHERE $COL_ID = ? LIMIT 1",
+                "SELECT * FROM `$table` WHERE $colId = ? LIMIT 1",
                 arrayOf<Any?>(id),
             ),
         ).firstOrNull()
     }
 
     override suspend fun getTombstones(): List<T> = withContext(ioDispatcher) {
-        rawQuery(SimpleSQLiteQuery("SELECT * FROM `$table` WHERE $COL_DELETED = 1"))
+        rawQuery(SimpleSQLiteQuery("SELECT * FROM `$table` WHERE $colDeleted = 1"))
     }
 
     override suspend fun upsert(entities: List<T>) {
@@ -126,7 +145,7 @@ public class RoomSyncAdapter<T : SyncableEntity>(
     // if a profiler shows write amplification on large batches.
     override suspend fun markSyncState(id: String, state: SyncState): Unit = database.withTransaction {
         database.openHelper.writableDatabase.execSQL(
-            "UPDATE `$table` SET $COL_STATE = ? WHERE $COL_ID = ?",
+            "UPDATE `$table` SET $colState = ? WHERE $colId = ?",
             arrayOf<Any?>(state.name, id),
         )
     }
@@ -136,7 +155,7 @@ public class RoomSyncAdapter<T : SyncableEntity>(
         database.withTransaction {
             val placeholders = ids.joinToString(separator = ",") { "?" }
             database.openHelper.writableDatabase.execSQL(
-                "DELETE FROM `$table` WHERE $COL_ID IN ($placeholders)",
+                "DELETE FROM `$table` WHERE $colId IN ($placeholders)",
                 Array<Any?>(ids.size) { ids[it] },
             )
         }
@@ -151,7 +170,7 @@ public class RoomSyncAdapter<T : SyncableEntity>(
                 // cutoff. Using `<=` (not `<`) makes retentionDays = 0 purge everything
                 // immediately and treats the exact window edge as expired.
                 "DELETE FROM `$table` " +
-                    "WHERE $COL_DELETED = 1 AND $COL_STATE = ? AND $COL_MODIFIED <= ?",
+                    "WHERE $colDeleted = 1 AND $colState = ? AND $colModified <= ?",
             )
             // A compiled statement holds a native SQLite handle; close it, or one
             // leaks per sync run for the life of the process.
@@ -163,10 +182,6 @@ public class RoomSyncAdapter<T : SyncableEntity>(
     }
 
     private companion object {
-        const val COL_ID = "id"
-        const val COL_STATE = "syncState"
-        const val COL_DELETED = "isDeleted"
-        const val COL_MODIFIED = "lastModified"
         const val MILLIS_PER_DAY = 24L * 60L * 60L * 1000L
 
         val IDENTIFIER = Regex("^[A-Za-z_][A-Za-z0-9_]*$")
@@ -174,7 +189,7 @@ public class RoomSyncAdapter<T : SyncableEntity>(
         /** SEC-05: reject anything that is not a plain SQL identifier. */
         fun validateIdentifier(name: String): String {
             require(name.matches(IDENTIFIER)) {
-                "Invalid table name '$name': must match ${IDENTIFIER.pattern}."
+                "Invalid identifier '$name': must match ${IDENTIFIER.pattern}."
             }
             return name
         }

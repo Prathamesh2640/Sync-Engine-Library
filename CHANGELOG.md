@@ -19,6 +19,9 @@ Pre-0.1.0 development. The first published artefact will be `0.1.0`.
 - `:sync-storage-room` — `RoomSyncAdapter<T>` implementing `LocalSyncStore<T>`; adapter takes a plain
   host `@Dao` and a `rawQuery` function reference (no generic `@Dao` base class — Room/KSP restriction).
   Tombstone purge at the retention boundary. Robolectric JVM tests.
+- `RoomSyncAdapter` constructor now accepts `idColumn`/`stateColumn`/`deletedColumn`/`modifiedColumn`
+  (each defaulting to the `SyncableEntity` default names), for hosts whose entity renames a sync column
+  with `@ColumnInfo`. Each is validated as a SQL identifier (SEC-05), same as `tableName`.
 - `:sync-network-retrofit` — `RetrofitSyncAdapter<T>` implementing `SyncNetworkAdapter<T>`. Host passes
   suspend call refs returning `retrofit2.Response<...>`. All HTTP outcomes mapped to `NetworkResult`
   (never throws). MockWebServer JVM tests.
