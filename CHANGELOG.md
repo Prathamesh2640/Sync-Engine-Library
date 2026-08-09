@@ -55,6 +55,13 @@ Pre-0.1.0 development. The first published artefact will be `0.1.0`.
 - Turbine-based `SyncEngineImplFlowTest` covering `StateFlow` emission ordering.
 
 ### Documentation
+- `README.md` trimmed from 673 to ~320 lines. Content was already accurate post-refactor, so this is
+  pure cutting: consolidated "How it works" (8 subsections) into one "The seams" section with a
+  paragraph + minimal example each instead of full worked examples per topic; merged the 5-step Quick
+  Start into a single ~35-line end-to-end example; dropped the Install section's Composite-build/Local-
+  Maven options in favor of a pointer to `SETUP.md § 9` (already documents the latter in full); removed
+  the "Implementation status" table (redundant with the rest of the doc describing the same features as
+  working, and carried a stale "134/134 tests" figure).
 - `SyncEngineConfig.maxRetries`, `SyncState.FAILED`, and `NetworkResult.NetworkError`'s KDoc all claimed
   the engine retries with exponential backoff. It doesn't — `:sync-core` has no delay/backoff primitive
   at all; a `FAILED` entity is retried on the very next `triggerSync()` call, and any cadence between
