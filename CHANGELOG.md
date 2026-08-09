@@ -44,6 +44,10 @@ Pre-0.1.0 development. The first published artefact will be `0.1.0`.
 - `SyncEngineConfig.batchSize`, `SyncNetworkAdapter.push` and the README described `batchSize` as
   entities per network round trip. The engine pushes each entity as its own request (so one item's
   failure is attributed to that item); the docs now say so.
+- `WorkManagerSyncScheduler` no longer calls `WorkManager.getInstance()` at construction time — the
+  lookup is deferred to the first `schedulePeriodicSync()`/`cancelSync()` call. A host that disables
+  WorkManager's `androidx.startup` auto-init (standard practice with a Hilt `WorkerFactory`) no longer
+  gets an `IllegalStateException` from merely constructing the scheduler.
 
 ### Removed
 - `SyncDatabase` — an abstract `RoomDatabase` subclass that added no schema and no behaviour. Host
