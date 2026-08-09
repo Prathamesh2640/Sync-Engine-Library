@@ -45,12 +45,21 @@ class SyncEngineImplPullTest {
             initial.forEach { (entity, meta) -> put(entity.id, meta) }
         }
 
+        var getMetadataCalls = 0
+            private set
+        val getMetadataByIdsCalls = mutableListOf<List<String>>()
+
         override suspend fun getPending() = rows.values.filter { metadata[it.id]?.syncState == SyncState.PENDING }
         override suspend fun getById(id: String) = rows[id]
-        override suspend fun getMetadata(id: String) = metadata[id]
+        override suspend fun getMetadata(id: String): SyncMetadata? {
+            getMetadataCalls++
+            return metadata[id]
+        }
         override suspend fun getByIds(ids: List<String>) = ids.mapNotNull { id -> rows[id]?.let { id to it } }.toMap()
-        override suspend fun getMetadataByIds(ids: List<String>) =
-            ids.mapNotNull { id -> metadata[id]?.let { id to it } }.toMap()
+        override suspend fun getMetadataByIds(ids: List<String>): Map<String, SyncMetadata> {
+            getMetadataByIdsCalls += ids
+            return ids.mapNotNull { id -> metadata[id]?.let { id to it } }.toMap()
+        }
         override suspend fun counts() = SyncCounts(
             pending = metadata.values.count { it.syncState == SyncState.PENDING },
             failed = metadata.values.count { it.syncState == SyncState.FAILED },
@@ -217,6 +226,24 @@ class SyncEngineImplPullTest {
 
         assertEquals(listOf(0L, 500L), sinceCalls)
         assertEquals(SyncState.SYNCED, store.metadata["future"]?.syncState)
+    }
+
+    @Test
+    fun `confirmDeletions looks up tombstone metadata in one batch call`() = runTest {
+        val store = FakeStore(
+            listOf(
+                seeded("d1", state = SyncState.PENDING, deleted = true),
+                seeded("d2", state = SyncState.PENDING, deleted = true),
+                seeded("d3", state = SyncState.PENDING, deleted = true),
+            ),
+        )
+        val e = engine(store, FakeAdapter(), scheduler = testScheduler)
+
+        e.triggerSync()
+
+        assertEquals("no per-tombstone getMetadata calls", 0, store.getMetadataCalls)
+        assertEquals("exactly one batch call", 1, store.getMetadataByIdsCalls.size)
+        assertEquals(setOf("d1", "d2", "d3"), store.getMetadataByIdsCalls.single().toSet())
     }
 
     @Test

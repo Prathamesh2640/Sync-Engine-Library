@@ -443,7 +443,8 @@ internal class SyncEngineImpl<T : SyncableEntity>(
      */
     private suspend fun confirmDeletions(store: LocalSyncStore<T>) {
         val tombstones = store.getTombstones()
-        val confirmable = tombstones.filter { store.getMetadata(it.id)?.syncState == SyncState.SYNCED }
+        val metas = store.getMetadataByIds(tombstones.map { it.id })
+        val confirmable = tombstones.filter { metas[it.id]?.syncState == SyncState.SYNCED }
         if (confirmable.isEmpty()) return
 
         val ids = confirmable.map { it.id }
