@@ -10,3 +10,15 @@
 -keep class io.github.prathamesh2640.sync.workmanager.SyncWorker {
     <init>(android.content.Context, androidx.work.WorkerParameters);
 }
+
+# Scheduler configuration enums — values used from host code
+-keep public enum io.github.prathamesh2640.sync.workmanager.SyncNetworkRequirement {
+    public static **[] values();
+    public static ** valueOf(java.lang.String);
+    *;
+}
+-keep public enum io.github.prathamesh2640.sync.workmanager.SyncBackoffPolicy {
+    public static **[] values();
+    public static ** valueOf(java.lang.String);
+    *;
+}
