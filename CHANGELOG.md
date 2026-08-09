@@ -89,6 +89,12 @@ Pre-0.1.0 development. The first published artefact will be `0.1.0`.
   entity (there is no more column default doing so implicitly). See ADL-022 in `memory.md`. A host
   adopting SyncEngine on an existing table no longer needs to add sync-state columns to it, at the cost
   of an explicit `markSyncState`/`markDeleted` call at every local write site.
+- **Breaking:** `RoomSyncAdapter` requires a new `metadataTable` constructor parameter (the sync-metadata
+  side table's name) and drops `stateColumn`/`deletedColumn` (no longer meaningful — those columns don't
+  live on the host table anymore). `idColumn`/`modifiedColumn` are unchanged. `getPending`/`getTombstones`
+  now join the host table against `metadataTable`; `markSyncState` is an upsert; `hardDelete`/
+  `purgeExpiredTombstones` remove rows from both tables. See README § Local storage for the metadata
+  table's required shape and a migration example.
 
 ### Security
 - `SyncEngineImpl` now enforces `SyncEngineConfig.maxRetries`: a per-entity push that fails more than

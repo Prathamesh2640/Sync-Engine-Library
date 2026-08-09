@@ -372,7 +372,7 @@ interface LocalSyncStore<T : SyncableEntity> {
 }
 ```
 
-Your Room DAO is a **plain `@Dao`** with a `@RawQuery` read and an `@Upsert` write; `RoomSyncAdapter` reads state-scoped slices of your entity table through them and writes engine outcomes back. There is **no separate queue table** and no generic base DAO to implement — your entity's `syncState` column is the single source of truth, and a plain `@Dao` sidesteps Room's KSP limitation with generic DAOs.
+Your Room DAO is a **plain `@Dao`** with a `@RawQuery` read and an `@Upsert` write; `RoomSyncAdapter` reads your entity table through them (joined against a small sync-metadata side table for state-scoped queries) and writes engine outcomes back. There is still no generic base DAO to implement — a plain `@Dao` sidesteps Room's KSP limitation with generic DAOs — and `RoomSyncAdapter` never generates Room code of its own for the metadata table either.
 
 ```kotlin
 @Dao
@@ -381,23 +381,33 @@ interface NoteDao {
     @RawQuery suspend fun rawQuery(query: SupportSQLiteQuery): List<Note>
 }
 
-@Database(entities = [Note::class], version = 1)
-abstract class AppDatabase : RoomDatabase() {   // your own database — the library adds no schema
+@Database(entities = [Note::class], version = 2)
+abstract class AppDatabase : RoomDatabase() {
     abstract fun noteDao(): NoteDao
 }
+// Migration(1, 2): CREATE TABLE notes_sync_meta (id TEXT NOT NULL PRIMARY KEY,
+//   syncState TEXT NOT NULL, isDeleted INTEGER NOT NULL DEFAULT 0) — never
+// fallbackToDestructiveMigration() on a database holding syncable data.
 
 val db = Room.databaseBuilder(context, AppDatabase::class.java, "app.db").build()
 val store = RoomSyncAdapter<Note>(
     database = db,
     tableName = "notes",
+    metadataTable = "notes_sync_meta",
     rawQuery = db.noteDao()::rawQuery,
     upsert = db.noteDao()::upsertAll,
 )
+val engine = SyncEngine.create(adapter = noteApiAdapter, store = store)
+
+// After every local insert/update — there's no column default doing this anymore:
+store.markSyncState(note.id, SyncState.PENDING)
+// On a local delete, instead of removing the row or setting a field:
+store.markDeleted(note.id)
 ```
 
-The store keeps the four `SyncableEntity` columns under their default names (`id`, `syncState`, `isDeleted`, `lastModified`) unless you tell it otherwise. If your entity renames any of them with `@ColumnInfo`, pass the real names via `idColumn`/`stateColumn`/`deletedColumn`/`modifiedColumn`. `RoomSyncAdapter` validates the table name *and* every column name as a SQL identifier and binds every query value (no injection risk), and `purgeExpiredTombstones` hard-deletes failed tombstones past `tombstoneRetentionDays` for GDPR erasure hygiene.
+`SyncableEntity`'s `id`/`lastModified` columns keep their default names (`id`/`lastModified`) unless you tell the store otherwise via `idColumn`/`modifiedColumn` (e.g. if your entity renames either with `@ColumnInfo`). The metadata table's own columns are always `id`/`syncState`/`isDeleted` — only its table name is yours to choose. `RoomSyncAdapter` validates every table and column name as a SQL identifier and binds every query value (no injection risk), and `purgeExpiredTombstones` hard-deletes failed tombstones — from both tables — past `tombstoneRetentionDays` for GDPR erasure hygiene.
 
-The library owns no table of its own — it reads and writes yours. Engine writes run inside a Room transaction, so a `Flow` query you observe over the same table is invalidated by them exactly as it would be by your own DAO writes.
+Engine writes run inside a Room transaction, so a `Flow` query you observe over either table is invalidated by them exactly as it would be by your own DAO writes.
 
 > **Never call `fallbackToDestructiveMigration()`** on a database holding syncable data — it drops every table on a version bump, silently destroying unsynced local changes and tombstones. Ship explicit, additive migrations.
 
