@@ -7,6 +7,7 @@ import androidx.room.RawQuery
 import androidx.room.Upsert
 import androidx.sqlite.db.SupportSQLiteQuery
 import io.github.prathamesh2640.sync.core.model.SyncState
+import kotlinx.coroutines.flow.Flow
 
 /** A [Note] joined with its [NoteSyncMeta.syncState], for list-UI display. */
 data class NoteWithState(
@@ -20,9 +21,10 @@ data class NoteWithState(
  * [NoteSyncMeta] through this DAO — its own raw SQL against `notes_sync_meta`
  * handles that (ADL-022). The read-only joins here are for the UI only.
  *
- * Reads are one-shot suspend queries (not `Flow`): the engine writes sync state
- * through raw SQL, which bypasses Room's invalidation tracker, so the app refreshes
- * explicitly after edits and syncs rather than relying on observable queries.
+ * [activeNotes] is a `Flow`: `RoomSyncAdapter` calls `refreshVersionsAsync()` after
+ * every raw-SQL write to `notes_sync_meta`, so Room's invalidation tracker does
+ * pick up engine writes and this query re-emits on its own — no manual refresh
+ * needed after a sync or a local edit.
  */
 @Dao
 interface NoteDao {
@@ -43,7 +45,7 @@ interface NoteDao {
             "JOIN notes_sync_meta ON notes.id = notes_sync_meta.id " +
             "WHERE notes_sync_meta.isDeleted = 0 ORDER BY notes.lastModified DESC",
     )
-    suspend fun activeNotes(): List<NoteWithState>
+    fun activeNotes(): Flow<List<NoteWithState>>
 
     /** Count of notes in a given [SyncState], for the dashboard counters. */
     @Query("SELECT COUNT(*) FROM notes_sync_meta WHERE syncState = :state")

@@ -7,6 +7,7 @@ import androidx.room.Database
 import androidx.room.Entity
 import androidx.room.InvalidationTracker
 import androidx.room.PrimaryKey
+import androidx.room.Query
 import androidx.room.RawQuery
 import androidx.room.Room
 import androidx.room.RoomDatabase
@@ -239,6 +240,39 @@ class RoomSyncAdapterTest {
         )
     }
 
+    /**
+     * Empirical proof (not just documentation) that a host's own plain `@Query`
+     * `Flow` re-emits after RoomSyncAdapter's raw-SQL write, thanks to the
+     * explicit `refreshVersionsAsync()` call after each write's transaction.
+     */
+    @Test
+    fun markSyncState_is_observable_via_a_plain_room_flow_query() = runTest {
+        seed("n", SyncState.PENDING)
+
+        val emissions = java.util.Collections.synchronizedList(mutableListOf<String?>())
+        val firstEmission = CountDownLatch(1)
+        val secondEmission = CountDownLatch(1)
+        val collector = Thread {
+            kotlinx.coroutines.runBlocking {
+                db.noteDao().observeSyncState("n").collect {
+                    emissions += it
+                    if (emissions.size == 1) firstEmission.countDown()
+                    if (emissions.size >= 2) secondEmission.countDown()
+                }
+            }
+        }.apply { isDaemon = true; start() }
+
+        assertTrue("Flow never even produced its initial value", firstEmission.await(5, TimeUnit.SECONDS))
+        store.markSyncState("n", SyncState.SYNCED)
+
+        assertTrue(
+            "Flow query never re-emitted after the raw-SQL write",
+            secondEmission.await(5, TimeUnit.SECONDS),
+        )
+        assertEquals(listOf(SyncState.PENDING.name, SyncState.SYNCED.name), emissions)
+        collector.interrupt()
+    }
+
     // --- SEC-05: identifier validation ----------------------------------------
 
     @Test(expected = IllegalArgumentException::class)
@@ -375,6 +409,10 @@ internal interface TestNoteDao {
     @Upsert suspend fun upsert(entity: TestNote)
     @Upsert suspend fun upsertAll(entities: List<TestNote>)
     @RawQuery suspend fun rawQuery(query: SupportSQLiteQuery): List<TestNote>
+
+    /** A plain `@Query` (not `@RawQuery`) so Room statically knows it reads `notes_sync_meta`. */
+    @Query("SELECT syncState FROM notes_sync_meta WHERE id = :id")
+    fun observeSyncState(id: String): kotlinx.coroutines.flow.Flow<String?>
 }
 
 /** Backs the LOCK-003 custom-column-name test — host-table columns deliberately renamed. */

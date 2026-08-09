@@ -45,9 +45,13 @@ Pre-0.1.0 development. The first published artefact will be `0.1.0`.
   unresolvable conflict or was skipped (a pending local deletion). Previously it advanced unconditionally
   for every remote entity regardless of outcome, so a stuck conflict — or anything at/after its
   timestamp — could be silently and permanently excluded from future pulls.
-- `RoomSyncAdapter`'s raw-SQL writes (`markSyncState`, `hardDelete`, `purgeExpiredTombstones`) now run
-  inside a Room transaction, so Room refreshes its `InvalidationTracker` on commit. Previously a host
-  observing its own table with a Room `Flow` was never notified of engine writes and its UI went stale.
+- `RoomSyncAdapter`'s raw-SQL writes (`markSyncState`, `markDeleted`, `hardDelete`,
+  `purgeExpiredTombstones`) now call `InvalidationTracker.refreshVersionsAsync()` after their
+  transaction commits. A bare `withTransaction` around raw `execSQL` does not by itself guarantee Room
+  notices the write — this was a real documentation/behavior gap (verified empirically with a Robolectric
+  `Flow` test), not just a stale doc: a host observing either table with a Room `Flow` now reliably sees
+  engine writes. The sample app's `NoteDao.activeNotes()` is now `Flow`-backed and `NotesRepository` no
+  longer manually re-queries after every local edit or sync.
 - `RoomSyncAdapter.purgeExpiredTombstones` now closes its compiled `SupportSQLiteStatement`; it
   previously leaked one native SQLite statement handle per sync run.
 - `SyncEngineConfig.batchSize`, `SyncNetworkAdapter.push` and the README described `batchSize` as
