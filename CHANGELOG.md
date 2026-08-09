@@ -55,6 +55,11 @@ Pre-0.1.0 development. The first published artefact will be `0.1.0`.
   optional constructor parameters (`networkRequirement`/`backoffPolicy`/`backoffDelayMillis`, defaults
   unchanged) via two new library-owned enums, `SyncNetworkRequirement` and `SyncBackoffPolicy` — no
   `androidx.work` type is added to the public API.
+- `WorkManagerSyncScheduler` gains an `engineKey` parameter (default `"default"`) so more than one
+  `SyncEngine` can be scheduled in the same process. `SyncEngineRegistry` is now keyed instead of a
+  single-slot holder, and the WorkManager unique-work name is scoped per key
+  (`SyncWorker.uniqueWorkName(engineKey)`), so two schedulers with different keys no longer collide.
+  `SyncWorker.UNIQUE_WORK_NAME` is replaced by `UNIQUE_WORK_NAME_PREFIX` + `uniqueWorkName(key)`.
 
 ### Removed
 - `SyncDatabase` — an abstract `RoomDatabase` subclass that added no schema and no behaviour. Host

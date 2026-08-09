@@ -428,6 +428,13 @@ val scheduler = WorkManagerSyncScheduler(
 )
 ```
 
+More than one engine can run in the same process — give each scheduler its own `engineKey` and they schedule independently, with no shared state or WorkManager unique-work-name collision:
+
+```kotlin
+WorkManagerSyncScheduler(context, engineProvider = { notesEngine }, engineKey = "notes").schedulePeriodicSync()
+WorkManagerSyncScheduler(context, engineProvider = { remindersEngine }, engineKey = "reminders").schedulePeriodicSync()
+```
+
 ### 8. Debug dashboard (Compose)
 
 `:sync-ui-dashboard` is a **debug-only** Jetpack Compose screen showing live sync status: current state, last-sync time, pending / failed / conflict counts, last error, and a "Sync now" button. Add it with `debugImplementation` so it never ships in release builds.
@@ -571,7 +578,7 @@ Then you probably do not need this library — a plain Retrofit service is enoug
 No — it borrows one. By default it runs on `Dispatchers.Default`; you can inject any `CoroutineDispatcher` through the internal constructor if you need a specific pool. There is one background coroutine per engine and it is cancelled by `close()`.
 
 **Can I have multiple engines?**
-Yes — one engine per entity type is a supported pattern. Each engine has its own queue, state machine, and adapter. Give each a distinct WorkManager unique-work name if you schedule them independently.
+Yes — one engine per entity type is a supported pattern. Each engine has its own queue, state machine, and adapter. If you schedule them with `WorkManagerSyncScheduler`, give each a distinct `engineKey` — it scopes both the `SyncEngineRegistry` entry and the WorkManager unique-work name so the two schedules don't collide.
 
 **Does `pull` need a real timestamp watermark?**
 The engine passes the `lastModified` of the newest entity it has seen so far. In-memory only — after process death it resets to 0, which triggers a full re-pull. That is safe because `upsert` is idempotent (keyed on `id`).
