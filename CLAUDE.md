@@ -26,7 +26,7 @@ Run a single test class from the CLI with `--tests`, e.g.
 `./gradlew :sync-core:test --tests "*.SyncStateTest"`.
 
 There are **no instrumented tests** (`androidTest`) — by design. `:sync-storage-room`'s Room adapter and
-`:sync-workmanager`'s scheduler are tested via **Robolectric** on the JVM, so the full suite (134 tests)
+`:sync-workmanager`'s scheduler are tested via **Robolectric** on the JVM, so the full suite (147 tests)
 runs with no emulator, in `./gradlew test`. Don't add `androidTest` sources unless a future change
 genuinely requires a real device/emulator.
 
@@ -60,9 +60,11 @@ Package root for all modules: `io.github.prathamesh2640.sync.*` (e.g.
 
 ### The seams (what plugs into what)
 
-- **`SyncableEntity`** (`:sync-core` model) — the contract every synced data class implements: `id`
-  (client-generated UUID v4, immutable, the idempotency key), `lastModified`, `syncState`, `isDeleted`
-  (soft-delete tombstone).
+- **`SyncableEntity`** (`:sync-core` model) — the contract every synced data class implements: just `id`
+  (client-generated UUID v4, immutable, the idempotency key) and `lastModified`. Sync lifecycle
+  (`syncState`, `isDeleted` tombstone flag) is **not** on this interface — it lives in a library-owned
+  `SyncMetadata` record, keyed by id, tracked through `LocalSyncStore` (see ADL-022 in `memory.md`). A
+  host adopting SyncEngine on an existing table therefore doesn't need to add sync-state columns to it.
 - **`SyncNetworkAdapter<T>`** — host-implemented, 3 suspend methods (`push`/`pull`/`delete`), never
   throws, returns `NetworkResult` (`Success`/`HttpError`/`NetworkError`/`UnknownError`).
   `:sync-network-retrofit`'s `RetrofitSyncAdapter` is a ready-made implementation that wraps host call
@@ -71,13 +73,16 @@ Package root for all modules: `io.github.prathamesh2640.sync.*` (e.g.
   defaults to `null`, in which case the engine still queues and pushes entities via its internal
   in-memory `SyncQueue`, but the pull, conflict-resolution, and tombstone-purge phases are all skipped
   entirely — there is nowhere durable to pull into. `:sync-storage-room`'s `RoomSyncAdapter` is the
-  Room-backed implementation. There is **no library-owned queue table** — the host's entity table with
-  its `syncState` column *is* the queue (single-source storage, see ADL-011 in `memory.md`).
-  `RoomSyncAdapter` talks to the host's DAO only through a `rawQuery` (`@RawQuery`) function reference
-  and an `@Upsert` function reference passed in by the caller — never a generic base DAO. That's not
-  because Room+KSP can't codegen generic DAOs (a plain non-generic `@Dao` failed identically; the real
-  cause was Room 2.6.1's KSP2 backend, fixed by bumping to Room 2.7.1); the base DAO was dropped because
-  a function reference is simpler for the host and needs zero library-side Room codegen (see ADL-013).
+  Room-backed implementation, backing `SyncMetadata` with a small host-created side table
+  (`metadataTable` constructor param) — the host's own entity table stays untouched by sync-state
+  columns. `syncState` still lives in exactly one place at a time (single-source storage; ADL-022
+  partially reverses ADL-011's "no library-owned table" for this reason — see `memory.md` for why that's
+  still safe). `RoomSyncAdapter` talks to the host's DAO only through a `rawQuery` (`@RawQuery`) function
+  reference and an `@Upsert` function reference passed in by the caller — never a generic base DAO.
+  That's not because Room+KSP can't codegen generic DAOs (a plain non-generic `@Dao` failed identically;
+  the real cause was Room 2.6.1's KSP2 backend, fixed by bumping to Room 2.7.1); the base DAO was dropped
+  because a function reference is simpler for the host and needs zero library-side Room codegen (see
+  ADL-013) — the metadata table follows the same pattern, no Room codegen of its own either.
 - **`ConflictResolver<T>`** — a `fun` interface (SAM), so lambda-friendly; must be pure (no I/O, no
   mutating its args). Feeding it a network-sourced `remote.lastModified` without a plausibility/clock-skew
   check is a known trap — see the guarded Last-Write-Wins example in README § Conflict resolution before
@@ -88,7 +93,10 @@ Package root for all modules: `io.github.prathamesh2640.sync.*` (e.g.
 ### Engine contract worth knowing before touching `SyncEngineImpl`
 
 - State machine: `PENDING → SYNCING → SYNCED`, with `FAILED` (re-queued) and `CONFLICT` (resolved via
-  `ConflictResolver` back to `PENDING`) branches. Host code never writes `syncState` directly.
+  `ConflictResolver` back to `PENDING`) branches. Host code never writes `syncState` directly during a
+  run — the one exception is the host's own call to `store.markSyncState(id, PENDING)` /
+  `store.markDeleted(id)` right after a local write, which is how an entity gets enqueued for sync in
+  the first place now that there's no column default doing it implicitly (ADL-022).
 - `triggerSync()` is **single-flight** — a concurrent call while a run is in progress is a no-op
   returning `Success(0, 0)`, not queued or rejected.
 - Batch pushes are per-item (`push([one])` per entity), so one item's failure produces

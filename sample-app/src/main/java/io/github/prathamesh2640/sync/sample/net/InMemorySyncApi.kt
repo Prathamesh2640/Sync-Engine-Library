@@ -1,6 +1,5 @@
 package io.github.prathamesh2640.sync.sample.net
 
-import io.github.prathamesh2640.sync.core.model.SyncState
 import io.github.prathamesh2640.sync.sample.data.Note
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -10,7 +9,9 @@ import kotlinx.coroutines.sync.withLock
  * and deterministically. Thread-safe via a [Mutex].
  *
  * [online] toggles simulated connectivity; [seedRemoteEdit] injects a concurrent
- * server-side change to demonstrate conflict resolution.
+ * server-side change to demonstrate conflict resolution. The server has no
+ * concept of sync state — that's purely local (ADL-022) — so it just stores
+ * [Note]s as-is.
  */
 class InMemorySyncApi {
 
@@ -20,9 +21,9 @@ class InMemorySyncApi {
     @Volatile
     var online: Boolean = true
 
-    /** Accept a pushed batch; the server stores each note as SYNCED. */
+    /** Accept a pushed batch. */
     suspend fun push(notes: List<Note>): Unit = mutex.withLock {
-        for (note in notes) server[note.id] = note.copy(syncState = SyncState.SYNCED)
+        for (note in notes) server[note.id] = note
     }
 
     /** Return every server note changed strictly after [since]. */
@@ -37,7 +38,7 @@ class InMemorySyncApi {
 
     /** Simulate another device editing [note] on the server (for the conflict demo). */
     suspend fun seedRemoteEdit(note: Note): Unit = mutex.withLock {
-        server[note.id] = note.copy(syncState = SyncState.SYNCED)
+        server[note.id] = note
     }
 
     /** Current server contents (for diagnostics/tests). */

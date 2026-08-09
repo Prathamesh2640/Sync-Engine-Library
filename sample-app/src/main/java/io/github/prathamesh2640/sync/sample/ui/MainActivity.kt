@@ -45,6 +45,7 @@ import io.github.prathamesh2640.sync.core.model.SyncState
 import io.github.prathamesh2640.sync.sample.DASHBOARD_AVAILABLE
 import io.github.prathamesh2640.sync.sample.SampleApp
 import io.github.prathamesh2640.sync.sample.data.Note
+import io.github.prathamesh2640.sync.sample.data.NoteWithState
 import io.github.prathamesh2640.sync.sample.launchDashboard
 import io.github.prathamesh2640.sync.sample.sync.NoteResolver
 import kotlinx.coroutines.launch
@@ -123,12 +124,12 @@ private fun NotesScreen(repository: io.github.prathamesh2640.sync.sample.NotesRe
                 }
             } else {
                 LazyColumn(modifier = Modifier.fillMaxSize()) {
-                    items(notes, key = { it.id }) { note ->
+                    items(notes, key = { it.note.id }) { noteWithState ->
                         NoteRow(
-                            note = note,
-                            onEdit = { editing = note },
-                            onDelete = { scope.launch { repository.deleteNote(note) } },
-                            onConflict = { scope.launch { repository.simulateConflict(note) } },
+                            noteWithState = noteWithState,
+                            onEdit = { editing = noteWithState.note },
+                            onDelete = { scope.launch { repository.deleteNote(noteWithState.note) } },
+                            onConflict = { scope.launch { repository.simulateConflict(noteWithState.note) } },
                         )
                     }
                 }
@@ -207,7 +208,8 @@ private fun ResolverPicker(current: NoteResolver, onPick: (NoteResolver) -> Unit
 }
 
 @Composable
-private fun NoteRow(note: Note, onEdit: () -> Unit, onDelete: () -> Unit, onConflict: () -> Unit) {
+private fun NoteRow(noteWithState: NoteWithState, onEdit: () -> Unit, onDelete: () -> Unit, onConflict: () -> Unit) {
+    val note = noteWithState.note
     Card(
         modifier = Modifier
             .fillMaxWidth()
@@ -216,7 +218,7 @@ private fun NoteRow(note: Note, onEdit: () -> Unit, onDelete: () -> Unit, onConf
         Column(modifier = Modifier.padding(12.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(note.title, style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
-                StateBadge(note.syncState)
+                StateBadge(noteWithState.syncState)
             }
             if (note.body.isNotBlank()) {
                 Spacer(Modifier.height(4.dp))
