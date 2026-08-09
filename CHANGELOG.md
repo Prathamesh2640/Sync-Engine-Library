@@ -60,6 +60,9 @@ Pre-0.1.0 development. The first published artefact will be `0.1.0`.
   single-slot holder, and the WorkManager unique-work name is scoped per key
   (`SyncWorker.uniqueWorkName(engineKey)`), so two schedulers with different keys no longer collide.
   `SyncWorker.UNIQUE_WORK_NAME` is replaced by `UNIQUE_WORK_NAME_PREFIX` + `uniqueWorkName(key)`.
+- `SyncDashboard.install`/`clear` gain an optional `key` parameter (default `"default"`) so more than
+  one engine's dashboard can be installed in the same process. `SyncDashboardActivity` reads a matching
+  optional `EXTRA_ENGINE_KEY` intent extra to pick which one to show.
 
 ### Removed
 - `SyncDatabase` — an abstract `RoomDatabase` subclass that added no schema and no behaviour. Host
