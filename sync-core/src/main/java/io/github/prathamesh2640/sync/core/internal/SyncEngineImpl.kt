@@ -342,11 +342,11 @@ internal class SyncEngineImpl<T : SyncableEntity>(
             when (val decision = reconcile(localEntity, localMeta, entity)) {
                 is Reconciliation.Apply -> {
                     downloads += decision.winner
-                    maxSeen = maxOf(maxSeen, entity.lastModified)
+                    maxSeen = maxOf(maxSeen, plausibleWatermark(entity.lastModified))
                 }
                 is Reconciliation.Resolved -> {
                     winners += decision.winner
-                    maxSeen = maxOf(maxSeen, entity.lastModified)
+                    maxSeen = maxOf(maxSeen, plausibleWatermark(entity.lastModified))
                 }
                 is Reconciliation.Unresolvable -> {
                     store.markSyncState(entity.id, SyncState.CONFLICT)
@@ -372,6 +372,17 @@ internal class SyncEngineImpl<T : SyncableEntity>(
         pullSince.set(maxSeen)
         return PullOutcome(downloadedCount = downloads.size, conflictCount = winners.size, errors = conflictErrors)
     }
+
+    /**
+     * Caps a remote entity's `lastModified` at "now" before it's allowed to move
+     * the pull watermark. Without this, one entity with an implausible future
+     * timestamp (attacker-tampered or clock-skewed server, per the same threat
+     * [ConflictResolver] warns implementors about) would pin [pullSince] past
+     * real time and starve every later pull for the life of the process. The
+     * entity itself is still applied normally — only the watermark bookkeeping
+     * is clamped.
+     */
+    private fun plausibleWatermark(lastModified: Long): Long = minOf(lastModified, clock())
 
     private suspend fun pullRemote(since: Long): NetworkResult<List<T>> =
         try {

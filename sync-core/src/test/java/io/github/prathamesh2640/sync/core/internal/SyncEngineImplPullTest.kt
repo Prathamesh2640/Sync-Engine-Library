@@ -189,6 +189,37 @@ class SyncEngineImplPullTest {
     }
 
     @Test
+    fun `a future-dated entity does not poison the watermark past the injected clock`() = runTest {
+        val store = FakeStore()
+        val future = note("future", lastModified = 4_102_444_800_000L) // year ~2100
+        val sinceCalls = mutableListOf<Long>()
+        var pullCount = 0
+        val adapter = object : SyncNetworkAdapter<Note> {
+            override suspend fun push(payload: List<Note>) = NetworkResult.Success(Unit)
+            override suspend fun pull(since: Long): NetworkResult<List<Note>> {
+                sinceCalls += since
+                pullCount++
+                return NetworkResult.Success(if (pullCount == 1) listOf(future) else emptyList())
+            }
+            override suspend fun delete(ids: List<String>) = NetworkResult.Success(Unit)
+        }
+        val e = SyncEngineImpl(
+            adapter,
+            SyncEngineConfig {},
+            UnconfinedTestDispatcher(testScheduler),
+            store = store,
+            resolver = null,
+            clock = { 500L },
+        )
+
+        e.triggerSync() // "future" is applied normally, but must not pin the watermark at its own timestamp.
+        e.triggerSync() // must ask for "since 500" (the clock), not "since 4102444800000" (the poisoned value).
+
+        assertEquals(listOf(0L, 500L), sinceCalls)
+        assertEquals(SyncState.SYNCED, store.metadata["future"]?.syncState)
+    }
+
+    @Test
     fun `a pull failure with a good push is a partial failure`() = runTest {
         val store = FakeStore(listOf(seeded("a", state = SyncState.PENDING)))
         val adapter = object : SyncNetworkAdapter<Note> {
