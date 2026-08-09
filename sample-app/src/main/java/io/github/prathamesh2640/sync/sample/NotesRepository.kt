@@ -102,14 +102,12 @@ class NotesRepository(context: Context, private val scope: CoroutineScope) {
 
     suspend fun addNote(title: String, body: String) {
         val note = Note(title = title.trim(), body = body.trim())
-        dao.upsert(note)
-        store.markSyncState(note.id, SyncState.PENDING) // enqueue — no column default does this anymore
+        store.enqueue(note) // persists + marks PENDING — no column default does this anymore
         refreshSnapshot()
     }
 
     suspend fun updateNote(note: Note, title: String, body: String) {
-        dao.upsert(note.copy(title = title.trim(), body = body.trim(), lastModified = System.currentTimeMillis()))
-        store.markSyncState(note.id, SyncState.PENDING)
+        store.enqueue(note.copy(title = title.trim(), body = body.trim(), lastModified = System.currentTimeMillis()))
         refreshSnapshot()
     }
 
@@ -144,8 +142,7 @@ class NotesRepository(context: Context, private val scope: CoroutineScope) {
      */
     suspend fun simulateConflict(note: Note) {
         val now = System.currentTimeMillis()
-        dao.upsert(note.copy(body = note.body + " [local edit]", lastModified = now))
-        store.markSyncState(note.id, SyncState.PENDING)
+        store.enqueue(note.copy(body = note.body + " [local edit]", lastModified = now))
         api.seedRemoteEdit(note.copy(body = note.body + " [server edit]", lastModified = now + 1_000))
         refreshSnapshot()
     }

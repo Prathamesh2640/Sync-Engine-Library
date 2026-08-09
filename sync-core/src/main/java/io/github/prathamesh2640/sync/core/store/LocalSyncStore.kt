@@ -131,6 +131,26 @@ public interface LocalSyncStore<T : SyncableEntity> {
     public suspend fun markSyncState(id: String, state: SyncState)
 
     /**
+     * Persist [entity] and enqueue it for sync in one call — `upsert(listOf(entity))`
+     * followed by `markSyncState(entity.id, SyncState.PENDING)`.
+     *
+     * This is the call a host makes after every local insert/update (see
+     * [markSyncState]'s "how do I enqueue an entity" note): calling `upsert` alone
+     * without a matching `markSyncState` leaves the entity silently un-enqueued —
+     * no error, nothing in [getPending], it just never syncs. [enqueue] collapses
+     * the two-call pattern so that mistake isn't possible to make by omission.
+     *
+     * A default method built only from [upsert] and [markSyncState], so existing
+     * implementations get it for free.
+     *
+     * @param entity the entity to persist and mark [SyncState.PENDING].
+     */
+    public suspend fun enqueue(entity: T) {
+        upsert(listOf(entity))
+        markSyncState(entity.id, SyncState.PENDING)
+    }
+
+    /**
      * Mark the entity identified by [id] as a tombstone awaiting sync: sets
      * [SyncMetadata.isDeleted] = `true` and [SyncMetadata.syncState] =
      * [SyncState.PENDING] — an upsert, like [markSyncState]. Call this instead of

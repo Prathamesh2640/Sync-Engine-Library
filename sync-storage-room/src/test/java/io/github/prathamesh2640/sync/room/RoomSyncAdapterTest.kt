@@ -161,6 +161,15 @@ class RoomSyncAdapterTest {
         assertNotNull(store.getById("b"))
     }
 
+    @Test
+    fun enqueue_persists_and_marks_pending_in_one_call() = runTest {
+        store.enqueue(note("a"))
+
+        assertNotNull(store.getById("a"))
+        assertEquals(SyncState.PENDING, store.getMetadata("a")?.syncState)
+        assertEquals(listOf("a"), store.getPending().map { it.id })
+    }
+
     // --- tombstones -----------------------------------------------------------
 
     @Test
