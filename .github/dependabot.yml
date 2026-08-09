@@ -10,22 +10,12 @@ updates:
     labels:
       - "dependencies"
     groups:
-      # Everything except the packages below, batched into one PR instead of
-      # one-per-package. Excluded because each has a load-bearing pin or a
-      # verified cross-dependency that makes a bump unsafe to merge blind:
-      # AGP/Room/KSP/coroutines (toolchain — see CLAUDE.md), com.vanniktech
-      # maven-publish (0.37+ requires Dokka v2 mode; this repo is pinned to
-      # Dokka 1.9.x), androidx.core:core-ktx (1.19+ requires compileSdk 37;
-      # this repo is pinned to compileSdk 36).
-      safe-updates:
-        patterns: ["*"]
-        exclude-patterns:
-          - "com.android.*"
-          - "androidx.room:*"
-          - "com.google.devtools.ksp*"
-          - "org.jetbrains.kotlinx:kotlinx-coroutines*"
-          - "com.vanniktech:*"
-          - "androidx.core:core-ktx"
+      test-only:
+        patterns:
+          - "junit:junit"
+          - "androidx.test*"
+          - "org.robolectric:*"
+          - "app.cash.turbine:*"
 
   # Keep the workflow actions themselves (checkout, setup-java, setup-gradle,
   # upload-artifact, actions-gh-pages) patched.
