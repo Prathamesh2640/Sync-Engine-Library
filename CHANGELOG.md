@@ -10,6 +10,14 @@ and this project adheres to [Semantic Versioning 2.0.0](https://semver.org/spec/
 Pre-0.1.0 development. The first published artefact will be `0.1.0`.
 
 ### Added
+- `SyncEngine.stats: StateFlow<SyncStats>` — pending/failed/conflict counts, the last run's finish
+  timestamp, and its first error, backed by a new `LocalSyncStore.counts(): SyncCounts`. Previously the
+  engine's only observable signal was the single `syncState` enum, so every host hand-counted via its own
+  DAO queries to build a dashboard; `SyncDashboardState` can now be built directly from
+  `syncState`+`stats` with no host-side counting. Updated once at the end of every `triggerSync()` run
+  (plus a best-effort initial count at construction so pre-existing pending/failed/conflict work isn't
+  reported as zero before the first sync). Sample app's dashboard snapshot now derives from
+  `engine.stats` instead of `NotesRepository` hand-counting via `dao.countOf(...)`.
 - `LocalSyncStore.enqueue(entity)` — a default method combining `upsert(listOf(entity))` +
   `markSyncState(entity.id, SyncState.PENDING)`. Forgetting the `markSyncState` call after a local write
   previously left an entity silently un-enqueued (no error, nothing in `getPending()` — it just never

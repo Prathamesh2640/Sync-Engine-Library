@@ -6,8 +6,10 @@ import io.github.prathamesh2640.sync.core.adapter.SyncNetworkAdapter
 import io.github.prathamesh2640.sync.core.engine.LogLevel
 import io.github.prathamesh2640.sync.core.engine.SyncEngine
 import io.github.prathamesh2640.sync.core.engine.SyncEngineConfig
+import io.github.prathamesh2640.sync.core.model.SyncCounts
 import io.github.prathamesh2640.sync.core.model.SyncMetadata
 import io.github.prathamesh2640.sync.core.model.SyncState
+import io.github.prathamesh2640.sync.core.model.SyncStats
 import io.github.prathamesh2640.sync.core.model.SyncableEntity
 import io.github.prathamesh2640.sync.core.result.SyncError
 import io.github.prathamesh2640.sync.core.result.SyncResult
@@ -20,7 +22,10 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.supervisorScope
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.Semaphore
@@ -84,6 +89,8 @@ import java.util.concurrent.atomic.AtomicLong
  *   phases; when null (the default) the engine is push-only. Declared before
  *   [resolver] so existing positional constructions stay source-compatible.
  * @param resolver optional conflict-resolution strategy for the pull phase.
+ * @param clock supplies "now" in epoch ms for [SyncStats.lastSyncTimestamp]; injectable for
+ *   deterministic tests. Defaults to [System.currentTimeMillis].
  */
 internal class SyncEngineImpl<T : SyncableEntity>(
     private val adapter: SyncNetworkAdapter<T>,
@@ -93,6 +100,7 @@ internal class SyncEngineImpl<T : SyncableEntity>(
     private val stateMachine: SyncStateMachine = SyncStateMachine(),
     private val store: LocalSyncStore<T>? = null,
     private val resolver: ConflictResolver<T>? = null,
+    private val clock: () -> Long = System::currentTimeMillis,
 ) : SyncEngine {
 
     private val engineScope = CoroutineScope(SupervisorJob() + dispatcher)
@@ -134,7 +142,23 @@ internal class SyncEngineImpl<T : SyncableEntity>(
      */
     private val pullSince = AtomicLong(0L)
 
+    private val _stats = MutableStateFlow(SyncStats.INITIAL)
+
     override val syncState: StateFlow<SyncState> get() = stateMachine.state
+    override val stats: StateFlow<SyncStats> get() = _stats
+
+    init {
+        // Best-effort initial counts so a freshly-constructed engine over a store
+        // with pre-existing pending/failed/conflict work doesn't report all-zero
+        // stats until the first triggerSync() happens. lastSyncTimestamp/lastError
+        // stay null here — they only mean something once a run actually finishes.
+        if (store != null) {
+            engineScope.launch {
+                val counts = store.counts()
+                _stats.update { it.copy(pending = counts.pending, failed = counts.failed, conflict = counts.conflict) }
+            }
+        }
+    }
 
     /**
      * Enqueue an entity for the next run. Internal seam used by tests to seed the
@@ -428,7 +452,7 @@ internal class SyncEngineImpl<T : SyncableEntity>(
 
     private suspend fun finish(errors: List<SyncError>, syncedCount: Int, conflictCount: Int): SyncResult {
         errors.forEach { log(LogLevel.ERROR) { "sync error: ${describe(it)}" } }
-        return when {
+        val result = when {
             errors.isEmpty() -> {
                 stateMachine.transitionTo(SyncState.SYNCED)
                 log(LogLevel.INFO) { "sync finished: synced=$syncedCount conflicts=$conflictCount" }
@@ -456,6 +480,23 @@ internal class SyncEngineImpl<T : SyncableEntity>(
                 SyncResult.PartialFailure(syncedCount = syncedCount, failedCount = errors.size, errors = errors)
             }
         }
+        updateStats(result)
+        return result
+    }
+
+    private suspend fun updateStats(result: SyncResult) {
+        val counts = store?.counts() ?: SyncCounts.ZERO
+        _stats.value = SyncStats(
+            pending = counts.pending,
+            failed = counts.failed,
+            conflict = counts.conflict,
+            lastSyncTimestamp = clock(),
+            lastError = when (result) {
+                is SyncResult.Success -> null
+                is SyncResult.PartialFailure -> result.errors.firstOrNull()
+                is SyncResult.Failure -> result.error
+            },
+        )
     }
 
     /**

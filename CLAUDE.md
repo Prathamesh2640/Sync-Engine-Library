@@ -26,7 +26,7 @@ Run a single test class from the CLI with `--tests`, e.g.
 `./gradlew :sync-core:test --tests "*.SyncStateTest"`.
 
 There are **no instrumented tests** (`androidTest`) — by design. `:sync-storage-room`'s Room adapter and
-`:sync-workmanager`'s scheduler are tested via **Robolectric** on the JVM, so the full suite (147 tests)
+`:sync-workmanager`'s scheduler are tested via **Robolectric** on the JVM, so the full suite (154 tests)
 runs with no emulator, in `./gradlew test`. Don't add `androidTest` sources unless a future change
 genuinely requires a real device/emulator.
 

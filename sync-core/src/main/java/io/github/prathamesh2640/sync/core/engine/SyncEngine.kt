@@ -4,6 +4,7 @@ import io.github.prathamesh2640.sync.core.adapter.ConflictResolver
 import io.github.prathamesh2640.sync.core.adapter.SyncNetworkAdapter
 import io.github.prathamesh2640.sync.core.internal.SyncEngineImpl
 import io.github.prathamesh2640.sync.core.model.SyncState
+import io.github.prathamesh2640.sync.core.model.SyncStats
 import io.github.prathamesh2640.sync.core.model.SyncableEntity
 import io.github.prathamesh2640.sync.core.result.SyncResult
 import io.github.prathamesh2640.sync.core.store.LocalSyncStore
@@ -46,6 +47,16 @@ public interface SyncEngine : Closeable {
      * holds a value; new collectors immediately receive the latest.
      */
     public val syncState: StateFlow<SyncState>
+
+    /**
+     * Observability beyond the single [syncState] enum — pending/failed/conflict
+     * counts, when the last run finished, and its first error, if any.
+     *
+     * Backed by [io.github.prathamesh2640.sync.core.store.LocalSyncStore.counts]
+     * (all zero when the engine has no store); see [SyncStats] for exactly when
+     * each field updates. Hot and conflated, like [syncState].
+     */
+    public val stats: StateFlow<SyncStats>
 
     /**
      * Run a sync now and suspend until it completes.
