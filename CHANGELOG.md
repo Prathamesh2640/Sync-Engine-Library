@@ -69,6 +69,11 @@ Pre-0.1.0 development. The first published artefact will be `0.1.0`.
   Reworded to describe the actual behavior instead of a promise the engine doesn't keep.
 
 ### Fixed
+- The pull phase's watermark no longer advances using a remote entity's raw `lastModified` unclamped.
+  An entity with an implausibly far-future timestamp (attacker-tampered or clock-skewed server — the
+  same threat `ConflictResolver`'s KDoc already warns implementors about) previously pinned `pullSince`
+  past real time, permanently starving every later pull. The watermark is now capped at the engine's
+  injected clock; the entity itself is still applied normally.
 - The pull phase's watermark (`since` for the next pull) no longer advances past an entity that hit an
   unresolvable conflict or was skipped (a pending local deletion). Previously it advanced unconditionally
   for every remote entity regardless of outcome, so a stuck conflict — or anything at/after its
