@@ -4,6 +4,7 @@ import io.github.prathamesh2640.sync.core.adapter.ConflictResolver
 import io.github.prathamesh2640.sync.core.adapter.NetworkResult
 import io.github.prathamesh2640.sync.core.adapter.SyncNetworkAdapter
 import io.github.prathamesh2640.sync.core.engine.SyncEngineConfig
+import io.github.prathamesh2640.sync.core.model.SyncCounts
 import io.github.prathamesh2640.sync.core.model.SyncMetadata
 import io.github.prathamesh2640.sync.core.model.SyncState
 import io.github.prathamesh2640.sync.core.result.SyncError
@@ -50,6 +51,11 @@ class SyncEngineImplPullTest {
         override suspend fun getByIds(ids: List<String>) = ids.mapNotNull { id -> rows[id]?.let { id to it } }.toMap()
         override suspend fun getMetadataByIds(ids: List<String>) =
             ids.mapNotNull { id -> metadata[id]?.let { id to it } }.toMap()
+        override suspend fun counts() = SyncCounts(
+            pending = metadata.values.count { it.syncState == SyncState.PENDING },
+            failed = metadata.values.count { it.syncState == SyncState.FAILED },
+            conflict = metadata.values.count { it.syncState == SyncState.CONFLICT },
+        )
         override suspend fun upsert(entities: List<Note>) = entities.forEach { rows[it.id] = it }
         override suspend fun getTombstones() = rows.values.filter { metadata[it.id]?.isDeleted == true }
         override suspend fun markSyncState(id: String, state: SyncState) {

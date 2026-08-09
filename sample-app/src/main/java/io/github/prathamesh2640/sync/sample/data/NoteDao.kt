@@ -47,10 +47,6 @@ interface NoteDao {
     )
     fun activeNotes(): Flow<List<NoteWithState>>
 
-    /** Count of notes in a given [SyncState], for the dashboard counters. */
-    @Query("SELECT COUNT(*) FROM notes_sync_meta WHERE syncState = :state")
-    suspend fun countOf(state: SyncState): Int
-
     @Query("SELECT * FROM notes WHERE id = :id LIMIT 1")
     suspend fun findById(id: String): Note?
 }

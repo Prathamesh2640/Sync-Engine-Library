@@ -5,7 +5,6 @@ import androidx.room.Room
 import io.github.prathamesh2640.sync.core.adapter.ConflictResolver
 import io.github.prathamesh2640.sync.core.engine.SyncEngine
 import io.github.prathamesh2640.sync.core.engine.SyncEngineConfig
-import io.github.prathamesh2640.sync.core.model.SyncState
 import io.github.prathamesh2640.sync.core.result.SyncError
 import io.github.prathamesh2640.sync.core.result.SyncResult
 import io.github.prathamesh2640.sync.room.RoomSyncAdapter
@@ -17,8 +16,11 @@ import io.github.prathamesh2640.sync.sample.net.InMemorySyncApi
 import io.github.prathamesh2640.sync.sample.sync.NoteResolver
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
 /**
@@ -32,8 +34,10 @@ import kotlinx.coroutines.launch
  *
  * The notes list is a live Room `Flow` ([io.github.prathamesh2640.sync.sample.data.NoteDao.activeNotes]) —
  * `RoomSyncAdapter` notifies Room's invalidation tracker after its raw-SQL writes,
- * so it re-emits on its own after a local edit or a sync. The dashboard snapshot
- * ([snapshot]) is still refreshed explicitly; its counts aren't Flow-backed yet.
+ * so it re-emits on its own after a local edit or a sync. [snapshot] is likewise
+ * derived straight from [SyncEngine.syncState]/[SyncEngine.stats] — the engine
+ * itself tracks pending/failed/conflict counts and the last run's outcome now, so
+ * this repository does no hand-counting or manual bookkeeping of its own.
  */
 class NotesRepository(context: Context, private val scope: CoroutineScope) {
 
@@ -71,60 +75,42 @@ class NotesRepository(context: Context, private val scope: CoroutineScope) {
     private val _notes = MutableStateFlow<List<NoteWithState>>(emptyList())
     val notes: StateFlow<List<NoteWithState>> = _notes.asStateFlow()
 
-    private val _snapshot = MutableStateFlow(DashboardSnapshot())
-    val snapshot: StateFlow<DashboardSnapshot> = _snapshot.asStateFlow()
+    val snapshot: StateFlow<DashboardSnapshot> = combine(engine.syncState, engine.stats) { state, stats ->
+        DashboardSnapshot(
+            syncState = state,
+            lastSyncTimestamp = stats.lastSyncTimestamp,
+            pending = stats.pending,
+            failed = stats.failed,
+            conflict = stats.conflict,
+            lastError = stats.lastError?.describe(),
+        )
+    }.stateIn(scope, SharingStarted.Eagerly, DashboardSnapshot())
 
     private val _online = MutableStateFlow(true)
     val online: StateFlow<Boolean> = _online.asStateFlow()
 
     val resolver: StateFlow<NoteResolver> = resolverSelection.asStateFlow()
 
-    private var lastSyncTimestamp: Long? = null
-    private var lastError: String? = null
-
     init {
-        // Keep the dashboard state live as the engine's state changes.
-        scope.launch { engine.syncState.collect { refreshSnapshot() } }
         scope.launch { dao.activeNotes().collect { _notes.value = it } }
-        scope.launch { refreshSnapshot() }
-    }
-
-    private suspend fun refreshSnapshot() {
-        _snapshot.value = DashboardSnapshot(
-            syncState = engine.syncState.value,
-            lastSyncTimestamp = lastSyncTimestamp,
-            pending = dao.countOf(SyncState.PENDING),
-            failed = dao.countOf(SyncState.FAILED),
-            conflict = dao.countOf(SyncState.CONFLICT),
-            lastError = lastError,
-        )
     }
 
     suspend fun addNote(title: String, body: String) {
         val note = Note(title = title.trim(), body = body.trim())
         store.enqueue(note) // persists + marks PENDING — no column default does this anymore
-        refreshSnapshot()
     }
 
     suspend fun updateNote(note: Note, title: String, body: String) {
         store.enqueue(note.copy(title = title.trim(), body = body.trim(), lastModified = System.currentTimeMillis()))
-        refreshSnapshot()
     }
 
     /** Soft-delete (tombstone): the row stays until the server confirms deletion. */
     suspend fun deleteNote(note: Note) {
         dao.upsert(note.copy(lastModified = System.currentTimeMillis()))
         store.markDeleted(note.id)
-        refreshSnapshot()
     }
 
-    suspend fun syncNow(): SyncResult {
-        val result = engine.triggerSync()
-        lastSyncTimestamp = System.currentTimeMillis()
-        lastError = result.toErrorText()
-        refreshSnapshot()
-        return result
-    }
+    suspend fun syncNow(): SyncResult = engine.triggerSync()
 
     fun setResolver(selection: NoteResolver) {
         resolverSelection.value = selection
@@ -144,18 +130,11 @@ class NotesRepository(context: Context, private val scope: CoroutineScope) {
         val now = System.currentTimeMillis()
         store.enqueue(note.copy(body = note.body + " [local edit]", lastModified = now))
         api.seedRemoteEdit(note.copy(body = note.body + " [server edit]", lastModified = now + 1_000))
-        refreshSnapshot()
     }
 
     fun close() {
         engine.close()
         database.close()
-    }
-
-    private fun SyncResult.toErrorText(): String? = when (this) {
-        is SyncResult.Success -> null
-        is SyncResult.PartialFailure -> "$failedCount failed (${errors.firstOrNull()?.describe() ?: "unknown"})"
-        is SyncResult.Failure -> error.describe()
     }
 
     private fun SyncError.describe(): String = when (this) {

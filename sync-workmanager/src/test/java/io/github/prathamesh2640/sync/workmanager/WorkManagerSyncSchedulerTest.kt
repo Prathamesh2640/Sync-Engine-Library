@@ -13,6 +13,7 @@ import androidx.work.testing.WorkManagerTestInitHelper
 import androidx.work.workDataOf
 import io.github.prathamesh2640.sync.core.engine.SyncEngine
 import io.github.prathamesh2640.sync.core.model.SyncState
+import io.github.prathamesh2640.sync.core.model.SyncStats
 import io.github.prathamesh2640.sync.core.result.SyncError
 import io.github.prathamesh2640.sync.core.result.SyncResult
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -38,6 +39,7 @@ class WorkManagerSyncSchedulerTest {
         var triggered = false
             private set
         override val syncState: StateFlow<SyncState> = MutableStateFlow(SyncState.PENDING)
+        override val stats: StateFlow<SyncStats> = MutableStateFlow(SyncStats.INITIAL)
         override suspend fun triggerSync(): SyncResult {
             triggered = true
             return result

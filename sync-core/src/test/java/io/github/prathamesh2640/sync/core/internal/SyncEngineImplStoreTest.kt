@@ -3,6 +3,7 @@ package io.github.prathamesh2640.sync.core.internal
 import io.github.prathamesh2640.sync.core.adapter.NetworkResult
 import io.github.prathamesh2640.sync.core.adapter.SyncNetworkAdapter
 import io.github.prathamesh2640.sync.core.engine.SyncEngineConfig
+import io.github.prathamesh2640.sync.core.model.SyncCounts
 import io.github.prathamesh2640.sync.core.model.SyncMetadata
 import io.github.prathamesh2640.sync.core.model.SyncState
 import io.github.prathamesh2640.sync.core.result.SyncError
@@ -51,6 +52,12 @@ class SyncEngineImplStoreTest {
 
         override suspend fun getMetadataByIds(ids: List<String>): Map<String, SyncMetadata> =
             ids.mapNotNull { id -> metadata[id]?.let { id to it } }.toMap()
+
+        override suspend fun counts(): SyncCounts = SyncCounts(
+            pending = metadata.values.count { it.syncState == SyncState.PENDING },
+            failed = metadata.values.count { it.syncState == SyncState.FAILED },
+            conflict = metadata.values.count { it.syncState == SyncState.CONFLICT },
+        )
 
         override suspend fun upsert(entities: List<Note>) {
             entities.forEach { rows[it.id] = it }
@@ -130,6 +137,46 @@ class SyncEngineImplStoreTest {
         assertEquals(SyncState.SYNCED, store.stateOf("b"))
         assertEquals(SyncState.SYNCED, store.stateOf("c"))
         assertEquals(SyncState.SYNCED, engine.syncState.value)
+    }
+
+    @Test
+    fun `stats reflect store counts and the last run's timestamp after a successful sync`() = runTest {
+        val store = FakeStore(listOf(note("a"), note("b")))
+        val engine = SyncEngineImpl(
+            SuccessAdapter(),
+            SyncEngineConfig {},
+            UnconfinedTestDispatcher(testScheduler),
+            store = store,
+            clock = { 42_000L },
+        )
+
+        engine.triggerSync()
+
+        val stats = engine.stats.value
+        assertEquals(0, stats.pending) // both pushed -> SYNCED
+        assertEquals(0, stats.failed)
+        assertEquals(0, stats.conflict)
+        assertEquals(42_000L, stats.lastSyncTimestamp)
+        assertEquals(null, stats.lastError)
+    }
+
+    @Test
+    fun `stats report the first error and non-zero failed count after a failed sync`() = runTest {
+        val store = FakeStore(listOf(note("a")))
+        val engine = SyncEngineImpl(
+            HttpErrorAdapter(500),
+            SyncEngineConfig {},
+            UnconfinedTestDispatcher(testScheduler),
+            store = store,
+            clock = { 99_000L },
+        )
+
+        engine.triggerSync()
+
+        val stats = engine.stats.value
+        assertEquals(1, stats.failed)
+        assertEquals(99_000L, stats.lastSyncTimestamp)
+        assertEquals(SyncError.HttpError(500), stats.lastError)
     }
 
     @Test

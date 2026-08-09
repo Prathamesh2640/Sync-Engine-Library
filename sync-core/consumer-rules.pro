@@ -12,6 +12,10 @@
 # SyncMetadata — the library-owned sync-lifecycle record (ADL-022)
 -keep public class io.github.prathamesh2640.sync.core.model.SyncMetadata { *; }
 
+# SyncCounts / SyncStats — the SyncEngine.stats observability surface
+-keep public class io.github.prathamesh2640.sync.core.model.SyncCounts { *; }
+-keep public class io.github.prathamesh2640.sync.core.model.SyncStats { *; }
+
 # SyncState enum — values() and valueOf() are used by Room and by the engine
 -keep public enum io.github.prathamesh2640.sync.core.model.SyncState {
     public static **[] values();

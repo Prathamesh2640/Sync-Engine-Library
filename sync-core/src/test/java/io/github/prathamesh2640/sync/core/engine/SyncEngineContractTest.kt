@@ -1,6 +1,7 @@
 package io.github.prathamesh2640.sync.core.engine
 
 import io.github.prathamesh2640.sync.core.model.SyncState
+import io.github.prathamesh2640.sync.core.model.SyncStats
 import io.github.prathamesh2640.sync.core.result.SyncError
 import io.github.prathamesh2640.sync.core.result.SyncResult
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -26,6 +27,7 @@ class SyncEngineContractTest {
     private class FakeEngine : SyncEngine {
         private val _syncState = MutableStateFlow(SyncState.PENDING)
         override val syncState: StateFlow<SyncState> = _syncState.asStateFlow()
+        override val stats: StateFlow<SyncStats> = MutableStateFlow(SyncStats.INITIAL).asStateFlow()
         private var closed = false
 
         override suspend fun triggerSync(): SyncResult {

@@ -4,6 +4,7 @@ import androidx.room.RoomDatabase
 import androidx.room.withTransaction
 import androidx.sqlite.db.SimpleSQLiteQuery
 import androidx.sqlite.db.SupportSQLiteQuery
+import io.github.prathamesh2640.sync.core.model.SyncCounts
 import io.github.prathamesh2640.sync.core.model.SyncMetadata
 import io.github.prathamesh2640.sync.core.model.SyncState
 import io.github.prathamesh2640.sync.core.model.SyncableEntity
@@ -181,6 +182,25 @@ public class RoomSyncAdapter<T : SyncableEntity> @JvmOverloads constructor(
                 isDeleted = cursor.getInt(1) != 0,
             )
         }
+    }
+
+    override suspend fun counts(): SyncCounts = withContext(ioDispatcher) {
+        var pending = 0
+        var failed = 0
+        var conflict = 0
+        database.openHelper.readableDatabase.query(
+            SimpleSQLiteQuery("SELECT syncState, COUNT(*) FROM `$metaTable` GROUP BY syncState"),
+        ).use { cursor ->
+            while (cursor.moveToNext()) {
+                when (SyncState.valueOf(cursor.getString(0))) {
+                    SyncState.PENDING -> pending = cursor.getInt(1)
+                    SyncState.FAILED -> failed = cursor.getInt(1)
+                    SyncState.CONFLICT -> conflict = cursor.getInt(1)
+                    else -> Unit
+                }
+            }
+        }
+        SyncCounts(pending = pending, failed = failed, conflict = conflict)
     }
 
     override suspend fun getTombstones(): List<T> = withContext(ioDispatcher) {

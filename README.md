@@ -250,7 +250,9 @@ PENDING ──► SYNCING ──► SYNCED
                 └──► CONFLICT  (resolved by ConflictResolver → PENDING → pushed back)
 ```
 
-`PENDING` is the starting state you set when enqueueing a new or modified entity (`store.markSyncState(id, SyncState.PENDING)`). The library manages every transition after that — your app code never writes `syncState` directly beyond that initial enqueue call.
+`PENDING` is the starting state you set when enqueueing a new or modified entity (`store.enqueue(entity)`). The library manages every transition after that — your app code never writes `syncState` directly beyond that initial enqueue call.
+
+Beyond the single `syncState: StateFlow<SyncState>` enum, `engine.stats: StateFlow<SyncStats>` reports pending/failed/conflict counts (from `store.counts()`), when the last run finished, and its first error — updated once at the end of every `triggerSync()` run (plus a best-effort initial count at construction), not on every local write. This is what backs the debug dashboard (§8) without any hand-counting.
 
 ### 3. Network adapter
 
@@ -365,6 +367,7 @@ interface LocalSyncStore<T : SyncableEntity> {
     suspend fun getMetadata(id: String): SyncMetadata?
     suspend fun getByIds(ids: List<String>): Map<String, T>            // batched getById
     suspend fun getMetadataByIds(ids: List<String>): Map<String, SyncMetadata>  // batched getMetadata
+    suspend fun counts(): SyncCounts                           // pending/failed/conflict — backs engine.stats
     suspend fun upsert(entities: List<T>)
     suspend fun getTombstones(): List<T>
     suspend fun markSyncState(id: String, state: SyncState)   // upsert — also how you enqueue a new/edited entity
@@ -453,10 +456,20 @@ WorkManagerSyncScheduler(context, engineProvider = { remindersEngine }, engineKe
 
 `:sync-ui-dashboard` is a **debug-only** Jetpack Compose screen showing live sync status: current state, last-sync time, pending / failed / conflict counts, last error, and a "Sync now" button. Add it with `debugImplementation` so it never ships in release builds.
 
-Embed `SyncDashboardRoute` in your own screen, or launch the ready-made `SyncDashboardActivity` from a debug menu. The activity reads a state source you install once:
+Embed `SyncDashboardRoute` in your own screen, or launch the ready-made `SyncDashboardActivity` from a debug menu. The activity reads a state source you install once — built from `engine.syncState` and `engine.stats` (pending/failed/conflict counts, last-sync time, last error — see § Sync lifecycle), not hand-counted:
 
 ```kotlin
-// Debug build only — build a StateFlow<SyncDashboardState> from your engine + store:
+// Debug build only — combine engine.syncState + engine.stats into SyncDashboardState:
+val dashboardState = combine(engine.syncState, engine.stats) { state, stats ->
+    SyncDashboardState(
+        syncState = state,
+        lastSyncTimestamp = stats.lastSyncTimestamp,
+        pendingCount = stats.pending,
+        failedCount = stats.failed,
+        conflictCount = stats.conflict,
+        lastError = stats.lastError?.toString(),
+    )
+}.stateIn(scope, SharingStarted.Eagerly, SyncDashboardState())
 SyncDashboard.install(
     state = dashboardState,
     onTriggerSync = { scope.launch { engine.triggerSync() } },
@@ -567,12 +580,12 @@ Nothing to add. Every library module ships a `consumer-rules.pro` inside its AAR
 
 ## Testing your integration
 
-The library is validated by **147 automated tests** across all six modules — all pass on the JVM (no emulator required for library modules).
+The library is validated by **154 automated tests** across all six modules — all pass on the JVM (no emulator required for library modules).
 
 | Module | Tests | Where |
 |---|---|---|
-| `:sync-core` | 104 (state machine, queue, engine, pull/push/flow) | JVM |
-| `:sync-storage-room` | 16 (Robolectric + real Room in-memory) | JVM |
+| `:sync-core` | 107 (state machine, queue, engine, pull/push/flow, stats) | JVM |
+| `:sync-storage-room` | 20 (Robolectric + real Room in-memory) | JVM |
 | `:sync-network-retrofit` | 7 (MockWebServer) | JVM |
 | `:sync-workmanager` | 6 (`WorkManagerTestInitHelper` + Robolectric) | JVM |
 | `:sync-ui-dashboard` | 6 (state, keyed install/clear) | JVM |

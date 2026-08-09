@@ -1,5 +1,6 @@
 package io.github.prathamesh2640.sync.core.store
 
+import io.github.prathamesh2640.sync.core.model.SyncCounts
 import io.github.prathamesh2640.sync.core.model.SyncMetadata
 import io.github.prathamesh2640.sync.core.model.SyncState
 import io.github.prathamesh2640.sync.core.model.SyncableEntity
@@ -89,6 +90,14 @@ public interface LocalSyncStore<T : SyncableEntity> {
      *   enqueued before; never `null` (empty when none matched).
      */
     public suspend fun getMetadataByIds(ids: List<String>): Map<String, SyncMetadata>
+
+    /**
+     * Counts of entities in each "not yet done" [SyncState] — what
+     * [io.github.prathamesh2640.sync.core.engine.SyncEngine.stats] reports.
+     *
+     * @return the counts; never `null`.
+     */
+    public suspend fun counts(): SyncCounts
 
     /**
      * Every soft-deleted entity still held locally — those whose
