@@ -3,7 +3,7 @@ agp = "9.2.1"
 coroutines = "1.8.1"
 coreKtx = "1.10.1"
 junit = "4.13.2"
-junitVersion = "1.1.5"
+junitVersion = "1.3.0"
 material = "1.10.0"
 room = "2.7.1"
 # Retrofit — used only in :sync-network-retrofit (OkHttp comes transitively).
@@ -34,7 +34,7 @@ lifecycleRuntimeCompose = "2.8.7"
 # Kotlin Android plugin (ADL-005 stays honored).
 composeCompiler = "2.1.0"
 # Turbine — Flow-testing helper for StateFlow emission assertions (F-15).
-turbine = "1.1.0"
+turbine = "1.2.1"
 # vanniktech Maven Central Portal publishing plugin (F-18/F-19) — hides the POM/
 # signing/upload boilerplate behind a `mavenPublishing {}` DSL.
 mavenPublish = "0.30.0"
