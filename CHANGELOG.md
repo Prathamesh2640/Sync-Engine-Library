@@ -46,6 +46,13 @@ Pre-0.1.0 development. The first published artefact will be `0.1.0`.
 - `consumer-rules.pro` on every publishable module — R8 keeps the full public API on release builds.
 - Turbine-based `SyncEngineImplFlowTest` covering `StateFlow` emission ordering.
 
+### Documentation
+- `SyncEngineConfig.maxRetries`, `SyncState.FAILED`, and `NetworkResult.NetworkError`'s KDoc all claimed
+  the engine retries with exponential backoff. It doesn't — `:sync-core` has no delay/backoff primitive
+  at all; a `FAILED` entity is retried on the very next `triggerSync()` call, and any cadence between
+  runs is entirely the host `SyncScheduler`'s concern (`:sync-workmanager`'s own configurable backoff).
+  Reworded to describe the actual behavior instead of a promise the engine doesn't keep.
+
 ### Fixed
 - The pull phase's watermark (`since` for the next pull) no longer advances past an entity that hit an
   unresolvable conflict or was skipped (a pending local deletion). Previously it advanced unconditionally

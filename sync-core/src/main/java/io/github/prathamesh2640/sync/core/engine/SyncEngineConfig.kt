@@ -32,7 +32,10 @@ package io.github.prathamesh2640.sync.core.engine
  *   siblings. `batchSize` therefore caps the work per run, not the size of a
  *   request. Must be `> 0` and at most [MAX_BATCH_SIZE].
  * @property maxRetries how many times a [io.github.prathamesh2640.sync.core.model.SyncState.FAILED]
- *   entity is retried (with exponential backoff) before it is left failed. Must be `>= 0`.
+ *   entity is retried — on the next [io.github.prathamesh2640.sync.core.engine.SyncEngine.triggerSync]
+ *   call, no engine-internal delay — before it is left failed. The cadence between runs (and any
+ *   backoff) is entirely the host [io.github.prathamesh2640.sync.core.scheduler.SyncScheduler]'s concern.
+ *   Must be `>= 0`.
  * @property tombstoneRetentionDays how long a confirmed-deleted (tombstoned)
  *   record is kept locally before it is hard-deleted. Must be `>= 0`.
  * @property maxConcurrentPushes upper bound on simultaneous in-flight pushes
