@@ -3,9 +3,7 @@ package io.github.prathamesh2640.sync.core.internal
 import io.github.prathamesh2640.sync.core.model.SyncState
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
 import org.junit.Assert.assertSame
-import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
@@ -30,10 +28,9 @@ class SyncStateMachineTest {
         for ((from, to) in validTransitions) {
             val machine = SyncStateMachine(initialState = from)
 
-            val applied = machine.transitionTo(to)
+            machine.transitionTo(to)
 
-            assertTrue("Expected $from -> $to to be allowed", applied)
-            assertEquals("state flow must reflect the move", to, machine.current)
+            assertEquals("Expected $from -> $to to be applied", to, machine.current)
             assertEquals(to, machine.state.value)
         }
     }
@@ -51,10 +48,9 @@ class SyncStateMachineTest {
         for ((from, to) in invalidTransitions) {
             val machine = SyncStateMachine(initialState = from)
 
-            val applied = machine.transitionTo(to)
+            machine.transitionTo(to)
 
-            assertFalse("Expected $from -> $to to be rejected", applied)
-            assertEquals("rejected transition must not mutate state", from, machine.current)
+            assertEquals("Expected $from -> $to to be rejected, state unchanged", from, machine.current)
         }
     }
 
@@ -62,9 +58,8 @@ class SyncStateMachineTest {
     fun `self transitions are always invalid`() = runTest {
         for (state in SyncState.entries) {
             val machine = SyncStateMachine(initialState = state)
-            val applied = machine.transitionTo(state)
-            assertFalse("$state -> $state must be rejected", applied)
-            assertEquals(state, machine.current)
+            machine.transitionTo(state)
+            assertEquals("$state -> $state must be rejected", state, machine.current)
         }
     }
 
@@ -77,9 +72,9 @@ class SyncStateMachineTest {
     fun `full happy-path cycle PENDING SYNCING SYNCED PENDING`() = runTest {
         val machine = SyncStateMachine()
 
-        assertTrue(machine.transitionTo(SyncState.SYNCING))
-        assertTrue(machine.transitionTo(SyncState.SYNCED))
-        assertTrue(machine.transitionTo(SyncState.PENDING))
+        machine.transitionTo(SyncState.SYNCING)
+        machine.transitionTo(SyncState.SYNCED)
+        machine.transitionTo(SyncState.PENDING)
 
         assertEquals(SyncState.PENDING, machine.current)
     }
@@ -89,9 +84,12 @@ class SyncStateMachineTest {
         val machine = SyncStateMachine()
         machine.transitionTo(SyncState.SYNCING)
 
-        assertTrue(machine.transitionTo(SyncState.FAILED))
-        assertTrue(machine.transitionTo(SyncState.PENDING))
-        assertTrue(machine.transitionTo(SyncState.SYNCING))
+        machine.transitionTo(SyncState.FAILED)
+        assertEquals(SyncState.FAILED, machine.current)
+        machine.transitionTo(SyncState.PENDING)
+        assertEquals(SyncState.PENDING, machine.current)
+        machine.transitionTo(SyncState.SYNCING)
+        assertEquals(SyncState.SYNCING, machine.current)
     }
 
     @Test

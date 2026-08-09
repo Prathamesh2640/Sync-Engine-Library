@@ -51,22 +51,19 @@ internal class SyncStateMachine(initialState: SyncState = SyncState.PENDING) {
     val current: SyncState get() = _state.value
 
     /**
-     * Attempt to move to [target].
+     * Attempt to move to [target]. Illegal moves (see the transition table
+     * above) are silently rejected — [current] is left unchanged. Check
+     * [current] after the call if the caller needs to know whether it applied.
      *
      * The check and the write happen atomically under the mutex, so two
      * coroutines racing to transition can never both succeed on stale state.
      *
      * @param target the state to move to.
-     * @return `true` if the transition was valid and applied, `false` if it was
-     *   illegal (state is left unchanged).
      */
-    suspend fun transitionTo(target: SyncState): Boolean = mutex.withLock {
+    suspend fun transitionTo(target: SyncState): Unit = mutex.withLock {
         val from = _state.value
         if (target in allowedTargetsOf(from)) {
             _state.value = target
-            true
-        } else {
-            false
         }
     }
 
