@@ -43,7 +43,7 @@ mavenPublish = "0.30.0"
 # `dokkaHtmlMultiModule` aggregation task (F-23) and vanniktech's automatic
 # javadoc.jar detection; fully compatible with the Kotlin 2.1.0 compiler used
 # here (F-18).
-dokka = "1.9.20"
+dokka = "2.2.0"
 
 [libraries]
 # AndroidX — used in Android modules only (NOT in :sync-core)
