@@ -10,7 +10,7 @@ room = "2.7.1"
 # Retrofit — used only in :sync-network-retrofit (OkHttp comes transitively).
 retrofit = "2.11.0"
 # OkHttp MockWebServer — test-only, exercises the adapter over real HTTP on the JVM.
-okhttp = "4.12.0"
+okhttp = "5.4.0"
 # KSP release string is "<kotlin>-<ksp>", pinned to Kotlin 2.1.0 by KSP's own
 # versioning scheme — that does NOT mean the project's Kotlin is 2.1.0. AGP
 # 9.2.1's built-in Kotlin compiler is actually 2.2.10 (see README/SETUP); this
