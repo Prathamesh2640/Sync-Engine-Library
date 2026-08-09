@@ -104,6 +104,27 @@ class RoomSyncAdapterTest {
     }
 
     @Test
+    fun getByIds_and_getMetadataByIds_batch_lookup() = runTest {
+        seed("a", SyncState.PENDING)
+        seed("b", SyncState.SYNCED, deleted = true)
+
+        val entities = store.getByIds(listOf("a", "b", "missing"))
+        assertEquals(setOf("a", "b"), entities.keys)
+
+        val metas = store.getMetadataByIds(listOf("a", "b", "missing"))
+        assertEquals(SyncState.PENDING, metas["a"]?.syncState)
+        assertEquals(SyncState.SYNCED, metas["b"]?.syncState)
+        assertTrue(metas["b"]?.isDeleted == true)
+        assertTrue("unmatched ids are simply absent", "missing" !in metas)
+    }
+
+    @Test
+    fun getByIds_and_getMetadataByIds_are_no_ops_on_empty_input() = runTest {
+        assertTrue(store.getByIds(emptyList()).isEmpty())
+        assertTrue(store.getMetadataByIds(emptyList()).isEmpty())
+    }
+
+    @Test
     fun markSyncState_creates_the_metadata_row_if_absent() = runTest {
         db.noteDao().upsert(note("a"))
         assertNull(store.getMetadata("a"))

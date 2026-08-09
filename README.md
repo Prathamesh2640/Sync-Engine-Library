@@ -363,6 +363,8 @@ interface LocalSyncStore<T : SyncableEntity> {
     suspend fun getPending(): List<T>
     suspend fun getById(id: String): T?
     suspend fun getMetadata(id: String): SyncMetadata?
+    suspend fun getByIds(ids: List<String>): Map<String, T>            // batched getById
+    suspend fun getMetadataByIds(ids: List<String>): Map<String, SyncMetadata>  // batched getMetadata
     suspend fun upsert(entities: List<T>)
     suspend fun getTombstones(): List<T>
     suspend fun markSyncState(id: String, state: SyncState)   // upsert — also how you enqueue a new/edited entity

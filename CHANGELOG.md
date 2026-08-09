@@ -10,6 +10,9 @@ and this project adheres to [Semantic Versioning 2.0.0](https://semver.org/spec/
 Pre-0.1.0 development. The first published artefact will be `0.1.0`.
 
 ### Added
+- `LocalSyncStore.getByIds`/`getMetadataByIds` — batched counterparts to `getById`/`getMetadata`. The
+  engine's pull phase now looks up a whole batch's local state in two queries instead of two per
+  entity (an N+1 the `SyncMetadata` side-table redesign introduced).
 - `:sync-core` — public API contracts: `SyncableEntity`, `SyncState`, `SyncEngine`, `SyncEngineConfig`
   (DSL), `SyncResult` / `SyncError` (sealed), `ConflictResolver`, `SyncNetworkAdapter`, `NetworkResult`
   (sealed), `LocalSyncStore`, `SyncScheduler`, `LogLevel`.
@@ -38,6 +41,10 @@ Pre-0.1.0 development. The first published artefact will be `0.1.0`.
 - Turbine-based `SyncEngineImplFlowTest` covering `StateFlow` emission ordering.
 
 ### Fixed
+- The pull phase's watermark (`since` for the next pull) no longer advances past an entity that hit an
+  unresolvable conflict or was skipped (a pending local deletion). Previously it advanced unconditionally
+  for every remote entity regardless of outcome, so a stuck conflict — or anything at/after its
+  timestamp — could be silently and permanently excluded from future pulls.
 - `RoomSyncAdapter`'s raw-SQL writes (`markSyncState`, `hardDelete`, `purgeExpiredTombstones`) now run
   inside a Room transaction, so Room refreshes its `InvalidationTracker` on commit. Previously a host
   observing its own table with a Room `Flow` was never notified of engine writes and its UI went stale.

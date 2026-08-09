@@ -47,6 +47,9 @@ class SyncEngineImplPullTest {
         override suspend fun getPending() = rows.values.filter { metadata[it.id]?.syncState == SyncState.PENDING }
         override suspend fun getById(id: String) = rows[id]
         override suspend fun getMetadata(id: String) = metadata[id]
+        override suspend fun getByIds(ids: List<String>) = ids.mapNotNull { id -> rows[id]?.let { id to it } }.toMap()
+        override suspend fun getMetadataByIds(ids: List<String>) =
+            ids.mapNotNull { id -> metadata[id]?.let { id to it } }.toMap()
         override suspend fun upsert(entities: List<Note>) = entities.forEach { rows[it.id] = it }
         override suspend fun getTombstones() = rows.values.filter { metadata[it.id]?.isDeleted == true }
         override suspend fun markSyncState(id: String, state: SyncState) {

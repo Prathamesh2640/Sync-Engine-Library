@@ -308,9 +308,13 @@ internal class SyncEngineImpl<T : SyncableEntity>(
         // again on the next pull instead of being silently skipped forever.
         var watermarkCeiling = Long.MAX_VALUE
 
+        val ids = remote.map { it.id }
+        val localEntities = store.getByIds(ids)
+        val localMetas = store.getMetadataByIds(ids)
+
         for (entity in remote) {
-            val localEntity = store.getById(entity.id)
-            val localMeta = store.getMetadata(entity.id)
+            val localEntity = localEntities[entity.id]
+            val localMeta = localMetas[entity.id]
             when (val decision = reconcile(localEntity, localMeta, entity)) {
                 is Reconciliation.Apply -> {
                     downloads += decision.winner

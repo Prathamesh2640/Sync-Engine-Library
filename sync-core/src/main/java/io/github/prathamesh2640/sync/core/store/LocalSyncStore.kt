@@ -67,6 +67,30 @@ public interface LocalSyncStore<T : SyncableEntity> {
     public suspend fun getMetadata(id: String): SyncMetadata?
 
     /**
+     * Look up several entities at once by [SyncableEntity.id].
+     *
+     * The batched counterpart to [getById] — the engine's pull phase uses this
+     * (once per pull, not once per entity) to avoid an N+1 query pattern when
+     * reconciling a batch of remote changes.
+     *
+     * @param ids the ids to look up.
+     * @return a map from id to entity, containing only the ids that matched a
+     *   row; never `null` (empty when none matched).
+     */
+    public suspend fun getByIds(ids: List<String>): Map<String, T>
+
+    /**
+     * Look up several entities' [SyncMetadata] at once by id.
+     *
+     * The batched counterpart to [getMetadata] — see [getByIds].
+     *
+     * @param ids the ids to look up.
+     * @return a map from id to metadata, containing only the ids that have been
+     *   enqueued before; never `null` (empty when none matched).
+     */
+    public suspend fun getMetadataByIds(ids: List<String>): Map<String, SyncMetadata>
+
+    /**
      * Every soft-deleted entity still held locally — those whose
      * [SyncMetadata.isDeleted] is `true`, awaiting tombstone confirmation from
      * the server before their local row is removed.
