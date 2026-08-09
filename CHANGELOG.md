@@ -69,6 +69,9 @@ Pre-0.1.0 development. The first published artefact will be `0.1.0`.
   Reworded to describe the actual behavior instead of a promise the engine doesn't keep.
 
 ### Fixed
+- `confirmDeletions` looked up each tombstone's metadata with a separate `getMetadata` call in a
+  `filter` — an N+1 identical in shape to the one already fixed in the pull phase. It now uses one
+  `getMetadataByIds` batch call instead.
 - The pull phase's watermark no longer advances using a remote entity's raw `lastModified` unclamped.
   An entity with an implausibly far-future timestamp (attacker-tampered or clock-skewed server — the
   same threat `ConflictResolver`'s KDoc already warns implementors about) previously pinned `pullSince`
