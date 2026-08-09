@@ -154,6 +154,32 @@ class SyncEngineImplPullTest {
     }
 
     @Test
+    fun `an unresolvable conflict blocks the watermark from advancing past it`() = runTest {
+        val store = FakeStore(listOf(seeded("stuck", state = SyncState.PENDING, title = "local", lastModified = 5L)))
+        val stuckRemote = note("stuck", title = "remote", lastModified = 20L)
+        val laterRemote = note("other", title = "other", lastModified = 30L)
+        val sinceCalls = mutableListOf<Long>()
+        var pullCount = 0
+        val adapter = object : SyncNetworkAdapter<Note> {
+            override suspend fun push(payload: List<Note>) = NetworkResult.Success(Unit)
+            override suspend fun pull(since: Long): NetworkResult<List<Note>> {
+                sinceCalls += since
+                pullCount++
+                return NetworkResult.Success(if (pullCount == 1) listOf(stuckRemote, laterRemote) else emptyList())
+            }
+            override suspend fun delete(ids: List<String>) = NetworkResult.Success(Unit)
+        }
+        val e = SyncEngineImpl(adapter, SyncEngineConfig {}, UnconfinedTestDispatcher(testScheduler), store = store, resolver = null)
+
+        e.triggerSync() // "stuck" is dirty local + remote change, no resolver -> Unresolvable. "other" is new -> Apply.
+        e.triggerSync() // watermark must still be below "stuck"'s lastModified (20), not past "other"'s (30).
+
+        assertEquals(listOf(0L, 19L), sinceCalls)
+        assertEquals(SyncState.CONFLICT, store.metadata["stuck"]?.syncState)
+        assertEquals(SyncState.SYNCED, store.metadata["other"]?.syncState)
+    }
+
+    @Test
     fun `a pull failure with a good push is a partial failure`() = runTest {
         val store = FakeStore(listOf(seeded("a", state = SyncState.PENDING)))
         val adapter = object : SyncNetworkAdapter<Note> {

@@ -300,20 +300,36 @@ internal class SyncEngineImpl<T : SyncableEntity>(
         val winners = ArrayList<T>()
         val conflictErrors = ArrayList<SyncError>()
         var maxSeen = pullSince.get()
+        // Lowest lastModified among this batch's Unresolvable/Skip entities, if
+        // any. maxSeen must never reach or pass it: `pull(since)` only returns
+        // entities strictly newer than `since`, so parking the watermark one
+        // below this ceiling is what guarantees the stuck entity — and anything
+        // else at/after it that a later batch might reorder in — is requested
+        // again on the next pull instead of being silently skipped forever.
+        var watermarkCeiling = Long.MAX_VALUE
 
         for (entity in remote) {
-            maxSeen = maxOf(maxSeen, entity.lastModified)
             val localEntity = store.getById(entity.id)
             val localMeta = store.getMetadata(entity.id)
             when (val decision = reconcile(localEntity, localMeta, entity)) {
-                is Reconciliation.Apply -> downloads += decision.winner
-                is Reconciliation.Resolved -> winners += decision.winner
+                is Reconciliation.Apply -> {
+                    downloads += decision.winner
+                    maxSeen = maxOf(maxSeen, entity.lastModified)
+                }
+                is Reconciliation.Resolved -> {
+                    winners += decision.winner
+                    maxSeen = maxOf(maxSeen, entity.lastModified)
+                }
                 is Reconciliation.Unresolvable -> {
                     store.markSyncState(entity.id, SyncState.CONFLICT)
                     conflictErrors += SyncError.ConflictUnresolvable(entity.id)
+                    watermarkCeiling = minOf(watermarkCeiling, entity.lastModified)
                 }
-                Reconciliation.Skip -> Unit
+                Reconciliation.Skip -> watermarkCeiling = minOf(watermarkCeiling, entity.lastModified)
             }
+        }
+        if (watermarkCeiling != Long.MAX_VALUE) {
+            maxSeen = minOf(maxSeen, watermarkCeiling - 1)
         }
 
         if (downloads.isNotEmpty()) {
