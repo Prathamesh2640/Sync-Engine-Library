@@ -35,12 +35,15 @@ package io.github.prathamesh2640.sync.core.engine
  *   entity is retried (with exponential backoff) before it is left failed. Must be `>= 0`.
  * @property tombstoneRetentionDays how long a confirmed-deleted (tombstoned)
  *   record is kept locally before it is hard-deleted. Must be `>= 0`.
+ * @property maxConcurrentPushes upper bound on simultaneous in-flight pushes
+ *   within one batch (SEC-11 hardening). Must be `> 0`.
  * @property logLevel diagnostic logging verbosity. See [LogLevel].
  */
 public class SyncEngineConfig internal constructor(
     public val batchSize: Int,
     public val maxRetries: Int,
     public val tombstoneRetentionDays: Int,
+    public val maxConcurrentPushes: Int,
     public val logLevel: LogLevel,
 ) {
 
@@ -61,6 +64,9 @@ public class SyncEngineConfig internal constructor(
         /** @see SyncEngineConfig.logLevel */
         public var logLevel: LogLevel = LogLevel.NONE
 
+        /** @see SyncEngineConfig.maxConcurrentPushes */
+        public var maxConcurrentPushes: Int = DEFAULT_MAX_CONCURRENT_PUSHES
+
         /**
          * Validate the current values and build an immutable [SyncEngineConfig].
          *
@@ -75,10 +81,14 @@ public class SyncEngineConfig internal constructor(
             require(tombstoneRetentionDays >= 0) {
                 "tombstoneRetentionDays must be >= 0, was $tombstoneRetentionDays"
             }
+            require(maxConcurrentPushes > 0) {
+                "maxConcurrentPushes must be > 0, was $maxConcurrentPushes"
+            }
             return SyncEngineConfig(
                 batchSize = batchSize,
                 maxRetries = maxRetries,
                 tombstoneRetentionDays = tombstoneRetentionDays,
+                maxConcurrentPushes = maxConcurrentPushes,
                 logLevel = logLevel,
             )
         }
@@ -100,6 +110,9 @@ public class SyncEngineConfig internal constructor(
 
         /** Default [tombstoneRetentionDays]. */
         public const val DEFAULT_TOMBSTONE_RETENTION_DAYS: Int = 30
+
+        /** Default [maxConcurrentPushes]. */
+        public const val DEFAULT_MAX_CONCURRENT_PUSHES: Int = 20
     }
 }
 

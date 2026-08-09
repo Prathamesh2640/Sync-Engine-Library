@@ -46,7 +46,7 @@ import java.util.concurrent.atomic.AtomicLong
  * 2. **Pushes** the pending batch. It drains the in-memory [SyncQueue] (seeded
  *    from the [LocalSyncStore] when one is configured, including any conflict
  *    winners from step 1) and pushes each entity through the injected
- *    [SyncNetworkAdapter], at most [MAX_CONCURRENT_PUSHES] at a time. Items are
+ *    [SyncNetworkAdapter], at most [SyncEngineConfig.maxConcurrentPushes] at a time. Items are
  *    pushed inside a [supervisorScope] so one item's failure never cancels its
  *    siblings (F-08); a failed item is re-queued and written back as `FAILED`,
  *    and retried on subsequent runs up to [SyncEngineConfig.maxRetries]
@@ -105,7 +105,7 @@ internal class SyncEngineImpl<T : SyncableEntity>(
      * per entity — a thundering herd against the host's own backend and a socket/
      * thread-exhaustion risk on the device.
      */
-    private val pushSemaphore = Semaphore(MAX_CONCURRENT_PUSHES)
+    private val pushSemaphore = Semaphore(config.maxConcurrentPushes)
 
     /**
      * Consecutive-failure count per entity id, since the last success. Only ever
@@ -207,7 +207,7 @@ internal class SyncEngineImpl<T : SyncableEntity>(
         val batch = queue.drainBatch(config.batchSize)
         if (batch.isEmpty()) return PushOutcome(syncedCount = 0, errors = emptyList())
 
-        // Push each item concurrently, capped at MAX_CONCURRENT_PUSHES in flight.
+        // Push each item concurrently, capped at config.maxConcurrentPushes in flight.
         // supervisorScope means one failing child does not cancel the others;
         // pushOne never throws, so awaitAll() only ever unwraps a real
         // CancellationException (engine closed / caller cancelled), which
@@ -474,11 +474,6 @@ internal class SyncEngineImpl<T : SyncableEntity>(
         is SyncError.HttpError -> "HttpError(code=${error.code})"
         is SyncError.ConflictUnresolvable -> "ConflictUnresolvable(id=${error.entityId})"
         is SyncError.StorageError -> "StorageError(${error.cause::class.simpleName})"
-    }
-
-    private companion object {
-        /** Upper bound on simultaneous in-flight pushes within one batch (SEC-11 hardening). */
-        const val MAX_CONCURRENT_PUSHES: Int = 20
     }
 }
 

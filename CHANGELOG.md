@@ -48,6 +48,8 @@ Pre-0.1.0 development. The first published artefact will be `0.1.0`.
   lookup is deferred to the first `schedulePeriodicSync()`/`cancelSync()` call. A host that disables
   WorkManager's `androidx.startup` auto-init (standard practice with a Hilt `WorkerFactory`) no longer
   gets an `IllegalStateException` from merely constructing the scheduler.
+- `SyncEngineConfig.maxConcurrentPushes` — the cap on simultaneous in-flight pushes within a batch was
+  a hardcoded private `20`; it's now a configurable builder/DSL option (default unchanged).
 
 ### Removed
 - `SyncDatabase` — an abstract `RoomDatabase` subclass that added no schema and no behaviour. Host

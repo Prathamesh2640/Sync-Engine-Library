@@ -344,9 +344,10 @@ The engine is configured with a type-safe DSL (all options have defaults, so `Sy
 
 ```kotlin
 val config = SyncEngineConfig {
-    batchSize = 100                 // default 50, max 1000 — entities drained per run; each is pushed as its own request, at most 20 in flight
+    batchSize = 100                 // default 50, max 1000 — entities drained per run; each is pushed as its own request
     maxRetries = 5                  // default 3    — consecutive per-entity failures before it's left FAILED for good
     tombstoneRetentionDays = 30     // default 30   — how long failed deletes are kept locally
+    maxConcurrentPushes = 20        // default 20   — pushes in flight at once within a batch
     logLevel = LogLevel.DEBUG       // default NONE — NONE < ERROR < WARN < INFO < DEBUG; job ids/state/error codes only, never entity content
 }
 ```
