@@ -72,11 +72,13 @@ import kotlinx.coroutines.withContext
  *
  * ### Observability
  * All metadata reads/writes are raw SQL rather than `@Query`/`@Upsert` methods,
- * so Room does not know about them statically. Writes are issued inside a Room
- * transaction (via [androidx.room.withTransaction]), which makes Room refresh
- * its [androidx.room.InvalidationTracker] on commit — a host observing either
- * table with a Room `Flow` therefore sees engine writes just as it would see
- * its own DAO writes.
+ * so Room does not know about them statically — a bare [androidx.room.withTransaction]
+ * around raw `execSQL` does not by itself guarantee Room's
+ * [androidx.room.InvalidationTracker] notices the write. Every write here
+ * therefore calls [androidx.room.InvalidationTracker.refreshVersionsAsync]
+ * after its transaction commits, so Room checks and notifies observers of the
+ * touched tables — a host observing either table with a Room `Flow` sees
+ * engine writes just as it would see its own DAO writes.
  *
  * @param database the [RoomDatabase] holding both tables.
  * @param tableName the host entity's table name (from its `@Entity(tableName =
@@ -200,25 +202,31 @@ public class RoomSyncAdapter<T : SyncableEntity> @JvmOverloads constructor(
     // Upsert as INSERT OR IGNORE + UPDATE rather than SQLite's native
     // `ON CONFLICT ... DO UPDATE` (3.24+): Robolectric's shadow SQLite engine
     // (used by these JVM tests) doesn't support that syntax.
-    override suspend fun markSyncState(id: String, state: SyncState): Unit = database.withTransaction {
-        val db = database.openHelper.writableDatabase
-        db.execSQL(
-            "INSERT OR IGNORE INTO `$metaTable` (id, syncState, isDeleted) VALUES (?, ?, 0)",
-            arrayOf<Any?>(id, state.name),
-        )
-        db.execSQL("UPDATE `$metaTable` SET syncState = ? WHERE id = ?", arrayOf<Any?>(state.name, id))
+    override suspend fun markSyncState(id: String, state: SyncState) {
+        database.withTransaction {
+            val db = database.openHelper.writableDatabase
+            db.execSQL(
+                "INSERT OR IGNORE INTO `$metaTable` (id, syncState, isDeleted) VALUES (?, ?, 0)",
+                arrayOf<Any?>(id, state.name),
+            )
+            db.execSQL("UPDATE `$metaTable` SET syncState = ? WHERE id = ?", arrayOf<Any?>(state.name, id))
+        }
+        database.invalidationTracker.refreshVersionsAsync()
     }
 
-    override suspend fun markDeleted(id: String): Unit = database.withTransaction {
-        val db = database.openHelper.writableDatabase
-        db.execSQL(
-            "INSERT OR IGNORE INTO `$metaTable` (id, syncState, isDeleted) VALUES (?, ?, 1)",
-            arrayOf<Any?>(id, SyncState.PENDING.name),
-        )
-        db.execSQL(
-            "UPDATE `$metaTable` SET syncState = ?, isDeleted = 1 WHERE id = ?",
-            arrayOf<Any?>(SyncState.PENDING.name, id),
-        )
+    override suspend fun markDeleted(id: String) {
+        database.withTransaction {
+            val db = database.openHelper.writableDatabase
+            db.execSQL(
+                "INSERT OR IGNORE INTO `$metaTable` (id, syncState, isDeleted) VALUES (?, ?, 1)",
+                arrayOf<Any?>(id, SyncState.PENDING.name),
+            )
+            db.execSQL(
+                "UPDATE `$metaTable` SET syncState = ?, isDeleted = 1 WHERE id = ?",
+                arrayOf<Any?>(SyncState.PENDING.name, id),
+            )
+        }
+        database.invalidationTracker.refreshVersionsAsync()
     }
 
     override suspend fun hardDelete(ids: List<String>) {
@@ -234,32 +242,43 @@ public class RoomSyncAdapter<T : SyncableEntity> @JvmOverloads constructor(
                 Array<Any?>(ids.size) { ids[it] },
             )
         }
+        database.invalidationTracker.refreshVersionsAsync()
     }
 
-    override suspend fun purgeExpiredTombstones(retentionDays: Int): Int = database.withTransaction {
-        val cutoff = clock() - retentionDays.coerceAtLeast(0).toLong() * MILLIS_PER_DAY
-        val db = database.openHelper.writableDatabase
+    override suspend fun purgeExpiredTombstones(retentionDays: Int): Int {
+        val purged = database.withTransaction {
+            val cutoff = clock() - retentionDays.coerceAtLeast(0).toLong() * MILLIS_PER_DAY
+            val db = database.openHelper.writableDatabase
 
-        // Retention semantics: a tombstone is expired once it has existed for at
-        // least `retentionDays` (age >= retention), i.e. lastModified <= cutoff.
-        // Using `<=` (not `<`) makes retentionDays = 0 purge everything
-        // immediately and treats the exact window edge as expired.
-        val expiredIds = ArrayList<String>()
-        db.query(
-            SimpleSQLiteQuery(
-                "SELECT m.id FROM `$metaTable` m JOIN `$table` t ON t.$colId = m.id " +
-                    "WHERE m.isDeleted = 1 AND m.syncState = ? AND t.$colModified <= ?",
-                arrayOf<Any?>(SyncState.FAILED.name, cutoff),
-            ),
-        ).use { cursor ->
-            while (cursor.moveToNext()) expiredIds += cursor.getString(0)
+            // Retention semantics: a tombstone is expired once it has existed for at
+            // least `retentionDays` (age >= retention), i.e. lastModified <= cutoff.
+            // Using `<=` (not `<`) makes retentionDays = 0 purge everything
+            // immediately and treats the exact window edge as expired.
+            val expiredIds = ArrayList<String>()
+            db.query(
+                SimpleSQLiteQuery(
+                    "SELECT m.id FROM `$metaTable` m JOIN `$table` t ON t.$colId = m.id " +
+                        "WHERE m.isDeleted = 1 AND m.syncState = ? AND t.$colModified <= ?",
+                    arrayOf<Any?>(SyncState.FAILED.name, cutoff),
+                ),
+            ).use { cursor ->
+                while (cursor.moveToNext()) expiredIds += cursor.getString(0)
+            }
+            if (expiredIds.isEmpty()) return@withTransaction 0
+
+            val placeholders = expiredIds.joinToString(separator = ",") { "?" }
+            db.execSQL(
+                "DELETE FROM `$table` WHERE $colId IN ($placeholders)",
+                Array<Any?>(expiredIds.size) { expiredIds[it] },
+            )
+            db.execSQL(
+                "DELETE FROM `$metaTable` WHERE id IN ($placeholders)",
+                Array<Any?>(expiredIds.size) { expiredIds[it] },
+            )
+            expiredIds.size
         }
-        if (expiredIds.isEmpty()) return@withTransaction 0
-
-        val placeholders = expiredIds.joinToString(separator = ",") { "?" }
-        db.execSQL("DELETE FROM `$table` WHERE $colId IN ($placeholders)", Array<Any?>(expiredIds.size) { expiredIds[it] })
-        db.execSQL("DELETE FROM `$metaTable` WHERE id IN ($placeholders)", Array<Any?>(expiredIds.size) { expiredIds[it] })
-        expiredIds.size
+        if (purged > 0) database.invalidationTracker.refreshVersionsAsync()
+        return purged
     }
 
     private companion object {

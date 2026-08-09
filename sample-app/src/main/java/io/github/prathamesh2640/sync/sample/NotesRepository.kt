@@ -30,8 +30,10 @@ import kotlinx.coroutines.launch
  * currently-selected [NoteResolver], so the strategy can be switched at runtime
  * without rebuilding the engine.
  *
- * Reads are explicit (see [refresh]) because the engine's raw-SQL state writes
- * bypass Room's observable-query invalidation.
+ * The notes list is a live Room `Flow` ([io.github.prathamesh2640.sync.sample.data.NoteDao.activeNotes]) —
+ * `RoomSyncAdapter` notifies Room's invalidation tracker after its raw-SQL writes,
+ * so it re-emits on its own after a local edit or a sync. The dashboard snapshot
+ * ([snapshot]) is still refreshed explicitly; its counts aren't Flow-backed yet.
  */
 class NotesRepository(context: Context, private val scope: CoroutineScope) {
 
@@ -83,12 +85,8 @@ class NotesRepository(context: Context, private val scope: CoroutineScope) {
     init {
         // Keep the dashboard state live as the engine's state changes.
         scope.launch { engine.syncState.collect { refreshSnapshot() } }
-        scope.launch { refresh() }
-    }
-
-    suspend fun refresh() {
-        _notes.value = dao.activeNotes()
-        refreshSnapshot()
+        scope.launch { dao.activeNotes().collect { _notes.value = it } }
+        scope.launch { refreshSnapshot() }
     }
 
     private suspend fun refreshSnapshot() {
@@ -106,27 +104,27 @@ class NotesRepository(context: Context, private val scope: CoroutineScope) {
         val note = Note(title = title.trim(), body = body.trim())
         dao.upsert(note)
         store.markSyncState(note.id, SyncState.PENDING) // enqueue — no column default does this anymore
-        refresh()
+        refreshSnapshot()
     }
 
     suspend fun updateNote(note: Note, title: String, body: String) {
         dao.upsert(note.copy(title = title.trim(), body = body.trim(), lastModified = System.currentTimeMillis()))
         store.markSyncState(note.id, SyncState.PENDING)
-        refresh()
+        refreshSnapshot()
     }
 
     /** Soft-delete (tombstone): the row stays until the server confirms deletion. */
     suspend fun deleteNote(note: Note) {
         dao.upsert(note.copy(lastModified = System.currentTimeMillis()))
         store.markDeleted(note.id)
-        refresh()
+        refreshSnapshot()
     }
 
     suspend fun syncNow(): SyncResult {
         val result = engine.triggerSync()
         lastSyncTimestamp = System.currentTimeMillis()
         lastError = result.toErrorText()
-        refresh()
+        refreshSnapshot()
         return result
     }
 
@@ -149,7 +147,7 @@ class NotesRepository(context: Context, private val scope: CoroutineScope) {
         dao.upsert(note.copy(body = note.body + " [local edit]", lastModified = now))
         store.markSyncState(note.id, SyncState.PENDING)
         api.seedRemoteEdit(note.copy(body = note.body + " [server edit]", lastModified = now + 1_000))
-        refresh()
+        refreshSnapshot()
     }
 
     fun close() {
