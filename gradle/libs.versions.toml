@@ -29,7 +29,7 @@ work = "2.10.0"
 # The BOM aligns every Compose artifact; individual libs omit versions.
 composeBom = "2024.10.00"
 activityCompose = "1.9.3"
-lifecycleRuntimeCompose = "2.8.7"
+lifecycleRuntimeCompose = "2.11.0"
 # Compose compiler Gradle plugin — must track the Kotlin version (2.1.0). With
 # AGP 9 built-in Kotlin, this applies the Compose compiler without the standalone
 # Kotlin Android plugin (ADL-005 stays honored).
