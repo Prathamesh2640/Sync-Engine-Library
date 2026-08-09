@@ -453,6 +453,13 @@ startActivity(Intent(context, SyncDashboardActivity::class.java))
 
 The dashboard depends only on `:sync-core` — it observes state through the public interfaces and never touches Room or WorkManager directly.
 
+More than one engine's dashboard can be installed in the same process — pass a distinct `key` per engine and launch the activity with the matching `EXTRA_ENGINE_KEY` intent extra:
+
+```kotlin
+SyncDashboard.install(state = notesState, onTriggerSync = { ... }, key = "notes")
+startActivity(Intent(context, SyncDashboardActivity::class.java).putExtra(SyncDashboardActivity.EXTRA_ENGINE_KEY, "notes"))
+```
+
 ---
 
 ## Quick start (5 steps)
