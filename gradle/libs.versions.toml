@@ -33,7 +33,7 @@ lifecycleRuntimeCompose = "2.8.7"
 # Compose compiler Gradle plugin — must track the Kotlin version (2.1.0). With
 # AGP 9 built-in Kotlin, this applies the Compose compiler without the standalone
 # Kotlin Android plugin (ADL-005 stays honored).
-composeCompiler = "2.1.0"
+composeCompiler = "2.4.10"
 # Turbine — Flow-testing helper for StateFlow emission assertions (F-15).
 turbine = "1.1.0"
 # vanniktech Maven Central Portal publishing plugin (F-18/F-19) — hides the POM/
