@@ -368,6 +368,7 @@ interface LocalSyncStore<T : SyncableEntity> {
     suspend fun upsert(entities: List<T>)
     suspend fun getTombstones(): List<T>
     suspend fun markSyncState(id: String, state: SyncState)   // upsert — also how you enqueue a new/edited entity
+    suspend fun enqueue(entity: T)                             // default: upsert(listOf(entity)) + markSyncState(id, PENDING)
     suspend fun markDeleted(id: String)                        // soft-delete: call instead of setting a field
     suspend fun hardDelete(ids: List<String>)
     suspend fun purgeExpiredTombstones(retentionDays: Int): Int
@@ -402,7 +403,7 @@ val store = RoomSyncAdapter<Note>(
 val engine = SyncEngine.create(adapter = noteApiAdapter, store = store)
 
 // After every local insert/update — there's no column default doing this anymore:
-store.markSyncState(note.id, SyncState.PENDING)
+store.enqueue(note)   // = upsert(listOf(note)) + markSyncState(note.id, SyncState.PENDING)
 // On a local delete, instead of removing the row or setting a field:
 store.markDeleted(note.id)
 ```

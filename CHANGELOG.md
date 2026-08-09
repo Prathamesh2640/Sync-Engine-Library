@@ -10,6 +10,12 @@ and this project adheres to [Semantic Versioning 2.0.0](https://semver.org/spec/
 Pre-0.1.0 development. The first published artefact will be `0.1.0`.
 
 ### Added
+- `LocalSyncStore.enqueue(entity)` — a default method combining `upsert(listOf(entity))` +
+  `markSyncState(entity.id, SyncState.PENDING)`. Forgetting the `markSyncState` call after a local write
+  previously left an entity silently un-enqueued (no error, nothing in `getPending()` — it just never
+  synced); `enqueue` collapses the two-call pattern the docs already recommended so that mistake isn't
+  possible to make by omission. Built only from existing abstract members, so every implementation gets
+  it automatically.
 - `LocalSyncStore.getByIds`/`getMetadataByIds` — batched counterparts to `getById`/`getMetadata`. The
   engine's pull phase now looks up a whole batch's local state in two queries instead of two per
   entity (an N+1 the `SyncMetadata` side-table redesign introduced).
