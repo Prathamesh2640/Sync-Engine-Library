@@ -1,15 +1,24 @@
 package io.github.prathamesh2640.sync.sample.data
 
 import androidx.room.Dao
+import androidx.room.Embedded
 import androidx.room.Query
 import androidx.room.RawQuery
 import androidx.room.Upsert
 import androidx.sqlite.db.SupportSQLiteQuery
 import io.github.prathamesh2640.sync.core.model.SyncState
 
+/** A [Note] joined with its [NoteSyncMeta.syncState], for list-UI display. */
+data class NoteWithState(
+    @Embedded val note: Note,
+    val syncState: SyncState,
+)
+
 /**
  * Plain `@Dao` for [Note] — no generic supertype (a generic `@Dao` crashes Room's
- * KSP). `RoomSyncAdapter` is wired to [upsertAll] and [rawQuery].
+ * KSP). `RoomSyncAdapter` is wired to [upsertAll] and [rawQuery]; it never reads
+ * [NoteSyncMeta] through this DAO — its own raw SQL against `notes_sync_meta`
+ * handles that (ADL-022). The read-only joins here are for the UI only.
  *
  * Reads are one-shot suspend queries (not `Flow`): the engine writes sync state
  * through raw SQL, which bypasses Room's invalidation tracker, so the app refreshes
@@ -28,12 +37,16 @@ interface NoteDao {
     @RawQuery
     suspend fun rawQuery(query: SupportSQLiteQuery): List<Note>
 
-    /** Active (non-deleted) notes for the list UI, newest first. */
-    @Query("SELECT * FROM notes WHERE isDeleted = 0 ORDER BY lastModified DESC")
-    suspend fun activeNotes(): List<Note>
+    /** Active (non-deleted) notes for the list UI, newest first, joined with their sync state. */
+    @Query(
+        "SELECT notes.*, notes_sync_meta.syncState AS syncState FROM notes " +
+            "JOIN notes_sync_meta ON notes.id = notes_sync_meta.id " +
+            "WHERE notes_sync_meta.isDeleted = 0 ORDER BY notes.lastModified DESC",
+    )
+    suspend fun activeNotes(): List<NoteWithState>
 
     /** Count of notes in a given [SyncState], for the dashboard counters. */
-    @Query("SELECT COUNT(*) FROM notes WHERE syncState = :state")
+    @Query("SELECT COUNT(*) FROM notes_sync_meta WHERE syncState = :state")
     suspend fun countOf(state: SyncState): Int
 
     @Query("SELECT * FROM notes WHERE id = :id LIMIT 1")

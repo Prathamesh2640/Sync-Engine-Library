@@ -11,6 +11,7 @@ import io.github.prathamesh2640.sync.core.result.SyncResult
 import io.github.prathamesh2640.sync.room.RoomSyncAdapter
 import io.github.prathamesh2640.sync.sample.data.Note
 import io.github.prathamesh2640.sync.sample.data.NoteDatabase
+import io.github.prathamesh2640.sync.sample.data.NoteWithState
 import io.github.prathamesh2640.sync.sample.net.FakeNoteApiAdapter
 import io.github.prathamesh2640.sync.sample.net.InMemorySyncApi
 import io.github.prathamesh2640.sync.sample.sync.NoteResolver
@@ -38,7 +39,7 @@ class NotesRepository(context: Context, private val scope: CoroutineScope) {
         context.applicationContext,
         NoteDatabase::class.java,
         "notes.db",
-    ).build()
+    ).addMigrations(NoteDatabase.MIGRATION_1_2).build()
 
     private val dao = database.noteDao()
 
@@ -48,6 +49,7 @@ class NotesRepository(context: Context, private val scope: CoroutineScope) {
     private val store = RoomSyncAdapter<Note>(
         database = database,
         tableName = "notes",
+        metadataTable = "notes_sync_meta",
         rawQuery = dao::rawQuery,
         upsert = dao::upsertAll,
     )
@@ -64,8 +66,8 @@ class NotesRepository(context: Context, private val scope: CoroutineScope) {
         },
     )
 
-    private val _notes = MutableStateFlow<List<Note>>(emptyList())
-    val notes: StateFlow<List<Note>> = _notes.asStateFlow()
+    private val _notes = MutableStateFlow<List<NoteWithState>>(emptyList())
+    val notes: StateFlow<List<NoteWithState>> = _notes.asStateFlow()
 
     private val _snapshot = MutableStateFlow(DashboardSnapshot())
     val snapshot: StateFlow<DashboardSnapshot> = _snapshot.asStateFlow()
@@ -101,31 +103,22 @@ class NotesRepository(context: Context, private val scope: CoroutineScope) {
     }
 
     suspend fun addNote(title: String, body: String) {
-        dao.upsert(Note(title = title.trim(), body = body.trim()))
+        val note = Note(title = title.trim(), body = body.trim())
+        dao.upsert(note)
+        store.markSyncState(note.id, SyncState.PENDING) // enqueue — no column default does this anymore
         refresh()
     }
 
     suspend fun updateNote(note: Note, title: String, body: String) {
-        dao.upsert(
-            note.copy(
-                title = title.trim(),
-                body = body.trim(),
-                lastModified = System.currentTimeMillis(),
-                syncState = SyncState.PENDING,
-            ),
-        )
+        dao.upsert(note.copy(title = title.trim(), body = body.trim(), lastModified = System.currentTimeMillis()))
+        store.markSyncState(note.id, SyncState.PENDING)
         refresh()
     }
 
     /** Soft-delete (tombstone): the row stays until the server confirms deletion. */
     suspend fun deleteNote(note: Note) {
-        dao.upsert(
-            note.copy(
-                isDeleted = true,
-                lastModified = System.currentTimeMillis(),
-                syncState = SyncState.PENDING,
-            ),
-        )
+        dao.upsert(note.copy(lastModified = System.currentTimeMillis()))
+        store.markDeleted(note.id)
         refresh()
     }
 
@@ -153,7 +146,8 @@ class NotesRepository(context: Context, private val scope: CoroutineScope) {
      */
     suspend fun simulateConflict(note: Note) {
         val now = System.currentTimeMillis()
-        dao.upsert(note.copy(body = note.body + " [local edit]", lastModified = now, syncState = SyncState.PENDING))
+        dao.upsert(note.copy(body = note.body + " [local edit]", lastModified = now))
+        store.markSyncState(note.id, SyncState.PENDING)
         api.seedRemoteEdit(note.copy(body = note.body + " [server edit]", lastModified = now + 1_000))
         refresh()
     }

@@ -31,7 +31,9 @@ Pre-0.1.0 development. The first published artefact will be `0.1.0`.
 - `:sync-ui-dashboard` — Compose-based debug dashboard (`SyncDashboardActivity`, `SyncDashboardRoute`,
   `SyncDashboardState`, `SyncDashboard` holder). Live state via `collectAsStateWithLifecycle`. Material3.
 - Sample-app — `Note` entity end-to-end wiring with Room, an in-memory fake backend, three conflict
-  resolvers (LastWriteWins / ServerWins / Merge), Compose UI, debug-only dashboard launcher.
+  resolvers (LastWriteWins / ServerWins / Merge), Compose UI, debug-only dashboard launcher. `Note` is
+  id-only (ADL-022); sync state comes from a `notes_sync_meta` side table, added via an explicit
+  `Migration(1, 2)` — a real example of adopting the new `SyncableEntity` contract on an existing schema.
 - `consumer-rules.pro` on every publishable module — R8 keeps the full public API on release builds.
 - Turbine-based `SyncEngineImplFlowTest` covering `StateFlow` emission ordering.
 

@@ -496,7 +496,7 @@ val engine: SyncEngine = SyncEngine.create(
     adapter = MyApiAdapter(api),
     config = SyncEngineConfig { batchSize = 100 },
     store = RoomSyncAdapter(                                  // durable, offline-first queue
-        db, tableName = "notes",
+        db, tableName = "notes", metadataTable = "notes_sync_meta",
         rawQuery = db.noteDao()::rawQuery, upsert = db.noteDao()::upsertAll,
     ),
     resolver = ConflictResolver { local, remote ->            // enable two-way sync + conflicts
@@ -564,15 +564,15 @@ Nothing to add. Every library module ships a `consumer-rules.pro` inside its AAR
 
 ## Testing your integration
 
-The library is validated by **134 automated tests** across all six modules — all pass on the JVM (no emulator required for library modules).
+The library is validated by **147 automated tests** across all six modules — all pass on the JVM (no emulator required for library modules).
 
 | Module | Tests | Where |
 |---|---|---|
-| `:sync-core` | 102 (state machine, queue, engine, pull/push/flow) | JVM |
-| `:sync-storage-room` | 10 (Robolectric + real Room in-memory) | JVM |
+| `:sync-core` | 104 (state machine, queue, engine, pull/push/flow) | JVM |
+| `:sync-storage-room` | 16 (Robolectric + real Room in-memory) | JVM |
 | `:sync-network-retrofit` | 7 (MockWebServer) | JVM |
-| `:sync-workmanager` | 5 (`WorkManagerTestInitHelper` + Robolectric) | JVM |
-| `:sync-ui-dashboard` | 2 (state) | JVM |
+| `:sync-workmanager` | 6 (`WorkManagerTestInitHelper` + Robolectric) | JVM |
+| `:sync-ui-dashboard` | 6 (state, keyed install/clear) | JVM |
 | `:sample-app` | 8 (resolvers, fake API) | JVM |
 
 Run everything: `./gradlew test`. See [SETUP.md](SETUP.md) for the full developer setup.
@@ -584,7 +584,7 @@ For your own integration, the simplest smoke test is: seed one row locally in `P
 ## FAQ
 
 **Do I have to use Room?**
-No — `:sync-storage-room` is optional. `LocalSyncStore` is framework-free; you can back it with SQLDelight, DataStore, a JSON file, or a pure in-memory map. Only the four sync columns (`id`, `lastModified`, `syncState`, `isDeleted`) need to be persistable somewhere.
+No — `:sync-storage-room` is optional. `LocalSyncStore` is framework-free; you can back it with SQLDelight, DataStore, a JSON file, or a pure in-memory map. Your entity only needs `id`/`lastModified` persisted; `syncState`/`isDeleted` are tracked separately as `SyncMetadata`, keyed by id (ADL-022) — that needs to be persistable too, but not as columns on your entity's own table.
 
 **Do I have to use Retrofit?**
 No — `:sync-network-retrofit` is optional. `SyncNetworkAdapter` has three `suspend` methods; implement them against Ktor, OkHttp, gRPC, whatever. The Retrofit module is just a convenience for the most common case.
