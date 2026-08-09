@@ -9,6 +9,9 @@
 # Public interfaces — host apps implement these; R8 must not rename members
 -keep public interface io.github.prathamesh2640.sync.core.model.SyncableEntity { *; }
 
+# SyncMetadata — the library-owned sync-lifecycle record (ADL-022)
+-keep public class io.github.prathamesh2640.sync.core.model.SyncMetadata { *; }
+
 # SyncState enum — values() and valueOf() are used by Room and by the engine
 -keep public enum io.github.prathamesh2640.sync.core.model.SyncState {
     public static **[] values();

@@ -81,6 +81,14 @@ Pre-0.1.0 development. The first published artefact will be `0.1.0`.
 - Every publishable module now compiles under Kotlin's `explicitApi()` strict mode, so a declaration
   can never become part of the public API by omission. `SyncState` and `SyncableEntity` (which relied
   on the implicit default) now state `public` explicitly — no visibility actually changed.
+- **Breaking:** `SyncableEntity.syncState`/`isDeleted` are removed — the interface now declares only
+  `id`/`lastModified`. Sync lifecycle moves to a new library-owned `SyncMetadata` record (`syncState`,
+  `isDeleted`), keyed by id, tracked through two new `LocalSyncStore` members: `getMetadata(id)` and
+  `markDeleted(id)`. `markSyncState(id, state)` is now an upsert — it creates the metadata row if one
+  doesn't exist — and is also the call a host makes after every local insert/update to enqueue that
+  entity (there is no more column default doing so implicitly). See ADL-022 in `memory.md`. A host
+  adopting SyncEngine on an existing table no longer needs to add sync-state columns to it, at the cost
+  of an explicit `markSyncState`/`markDeleted` call at every local write site.
 
 ### Security
 - `SyncEngineImpl` now enforces `SyncEngineConfig.maxRetries`: a per-entity push that fails more than

@@ -3,6 +3,7 @@ package io.github.prathamesh2640.sync.core.internal
 import io.github.prathamesh2640.sync.core.adapter.NetworkResult
 import io.github.prathamesh2640.sync.core.adapter.SyncNetworkAdapter
 import io.github.prathamesh2640.sync.core.engine.SyncEngineConfig
+import io.github.prathamesh2640.sync.core.model.SyncMetadata
 import io.github.prathamesh2640.sync.core.model.SyncState
 import io.github.prathamesh2640.sync.core.result.SyncError
 import io.github.prathamesh2640.sync.core.result.SyncResult
@@ -23,12 +24,14 @@ import org.junit.Test
  */
 class SyncEngineImplStoreTest {
 
-    private fun note(id: String, state: SyncState = SyncState.PENDING, deleted: Boolean = false) =
-        Note(id = id, title = "t-$id", lastModified = 0L, syncState = state, isDeleted = deleted)
+    private fun note(id: String) = Note(id = id, title = "t-$id", lastModified = 0L)
 
-    /** In-memory [LocalSyncStore] that records the writes the engine makes. */
+    /** In-memory [LocalSyncStore] that records the writes the engine makes. Seeds every entity PENDING. */
     private class FakeStore(initial: List<Note> = emptyList()) : LocalSyncStore<Note> {
         private val rows = LinkedHashMap<String, Note>().apply { initial.forEach { put(it.id, it) } }
+        private val metadata = LinkedHashMap<String, SyncMetadata>().apply {
+            initial.forEach { put(it.id, SyncMetadata(syncState = SyncState.PENDING)) }
+        }
 
         val stateWrites = mutableListOf<Pair<String, SyncState>>()
         var purgeCalls = 0
@@ -37,23 +40,29 @@ class SyncEngineImplStoreTest {
             private set
 
         override suspend fun getPending(): List<Note> =
-            rows.values.filter { it.syncState == SyncState.PENDING }
+            rows.values.filter { metadata[it.id]?.syncState == SyncState.PENDING }
 
         override suspend fun getById(id: String): Note? = rows[id]
+
+        override suspend fun getMetadata(id: String): SyncMetadata? = metadata[id]
 
         override suspend fun upsert(entities: List<Note>) {
             entities.forEach { rows[it.id] = it }
         }
 
-        override suspend fun getTombstones(): List<Note> = rows.values.filter { it.isDeleted }
+        override suspend fun getTombstones(): List<Note> = rows.values.filter { metadata[it.id]?.isDeleted == true }
 
         override suspend fun markSyncState(id: String, state: SyncState) {
             stateWrites += id to state
-            rows[id]?.let { rows[id] = it.copy(syncState = state) }
+            metadata[id] = metadata[id]?.copy(syncState = state) ?: SyncMetadata(syncState = state)
+        }
+
+        override suspend fun markDeleted(id: String) {
+            metadata[id] = SyncMetadata(syncState = SyncState.PENDING, isDeleted = true)
         }
 
         override suspend fun hardDelete(ids: List<String>) {
-            ids.forEach { rows.remove(it) }
+            ids.forEach { rows.remove(it); metadata.remove(it) }
         }
 
         override suspend fun purgeExpiredTombstones(retentionDays: Int): Int {

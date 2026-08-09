@@ -1,7 +1,6 @@
 package io.github.prathamesh2640.sync.core.model
 
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -10,8 +9,9 @@ import org.junit.Test
  * Contract tests for [SyncableEntity].
  *
  * Uses a minimal in-test implementation ([TestEntity]) to verify that the
- * interface behaves correctly for every property. Any future change to the
- * interface contract must be reflected here.
+ * interface behaves correctly for every property. Sync lifecycle (state,
+ * tombstone flag) is not part of this interface — see [SyncMetadataTest] for
+ * that contract.
  */
 class SyncableEntityContractTest {
 
@@ -20,8 +20,6 @@ class SyncableEntityContractTest {
     private data class TestEntity(
         override val id: String,
         override val lastModified: Long,
-        override val syncState: SyncState,
-        override val isDeleted: Boolean = false
     ) : SyncableEntity
 
     // ── id ────────────────────────────────────────────────────────────────────
@@ -29,14 +27,14 @@ class SyncableEntityContractTest {
     @Test
     fun `id is preserved correctly`() {
         val uuid = "550e8400-e29b-41d4-a716-446655440000"
-        val entity = TestEntity(id = uuid, lastModified = 0L, syncState = SyncState.PENDING)
+        val entity = TestEntity(id = uuid, lastModified = 0L)
         assertEquals(uuid, entity.id)
     }
 
     @Test
     fun `two entities with different ids are not equal`() {
-        val e1 = TestEntity(id = "id-A", lastModified = 100L, syncState = SyncState.PENDING)
-        val e2 = TestEntity(id = "id-B", lastModified = 100L, syncState = SyncState.PENDING)
+        val e1 = TestEntity(id = "id-A", lastModified = 100L)
+        val e2 = TestEntity(id = "id-B", lastModified = 100L)
         assertNotEquals(e1, e2)
     }
 
@@ -45,75 +43,30 @@ class SyncableEntityContractTest {
     @Test
     fun `lastModified is preserved correctly`() {
         val timestamp = 1_716_912_000_000L
-        val entity = TestEntity(id = "id", lastModified = timestamp, syncState = SyncState.PENDING)
+        val entity = TestEntity(id = "id", lastModified = timestamp)
         assertEquals(timestamp, entity.lastModified)
     }
 
     @Test
     fun `later lastModified is greater than earlier lastModified`() {
-        val older = TestEntity(id = "id", lastModified = 1_000L, syncState = SyncState.SYNCED)
-        val newer = TestEntity(id = "id", lastModified = 2_000L, syncState = SyncState.SYNCED)
+        val older = TestEntity(id = "id", lastModified = 1_000L)
+        val newer = TestEntity(id = "id", lastModified = 2_000L)
         assertTrue(newer.lastModified > older.lastModified)
-    }
-
-    // ── syncState ─────────────────────────────────────────────────────────────
-
-    @Test
-    fun `syncState reflects the assigned value for every state`() {
-        for (state in SyncState.entries) {
-            val entity = TestEntity(id = "id", lastModified = 0L, syncState = state)
-            assertEquals("syncState mismatch for $state", state, entity.syncState)
-        }
-    }
-
-    // ── isDeleted (tombstone) ─────────────────────────────────────────────────
-
-    @Test
-    fun `isDeleted defaults to false when not explicitly set`() {
-        val entity = TestEntity(id = "id", lastModified = 0L, syncState = SyncState.PENDING)
-        assertFalse(
-            "isDeleted must default to false — new entities are not deleted",
-            entity.isDeleted
-        )
-    }
-
-    @Test
-    fun `isDeleted can be explicitly set to true for a tombstone`() {
-        val tombstone = TestEntity(
-            id = "id",
-            lastModified = 0L,
-            syncState = SyncState.PENDING,
-            isDeleted = true
-        )
-        assertTrue(tombstone.isDeleted)
-    }
-
-    @Test
-    fun `a tombstone entity still carries a valid syncState`() {
-        // Tombstones must still be synced — they should be PENDING until the
-        // server confirms the deletion.
-        val tombstone = TestEntity(
-            id = "id",
-            lastModified = 0L,
-            syncState = SyncState.PENDING,
-            isDeleted = true
-        )
-        assertEquals(SyncState.PENDING, tombstone.syncState)
     }
 
     // ── Equality and identity ─────────────────────────────────────────────────
 
     @Test
     fun `two entities with identical properties are equal`() {
-        val e1 = TestEntity(id = "same", lastModified = 100L, syncState = SyncState.SYNCED)
-        val e2 = TestEntity(id = "same", lastModified = 100L, syncState = SyncState.SYNCED)
+        val e1 = TestEntity(id = "same", lastModified = 100L)
+        val e2 = TestEntity(id = "same", lastModified = 100L)
         assertEquals(e1, e2)
     }
 
     @Test
-    fun `entities with the same id but different syncState are not equal`() {
-        val pending = TestEntity(id = "id", lastModified = 100L, syncState = SyncState.PENDING)
-        val synced  = TestEntity(id = "id", lastModified = 100L, syncState = SyncState.SYNCED)
-        assertNotEquals(pending, synced)
+    fun `entities with the same id but different lastModified are not equal`() {
+        val older = TestEntity(id = "id", lastModified = 100L)
+        val newer = TestEntity(id = "id", lastModified = 200L)
+        assertNotEquals(older, newer)
     }
 }
