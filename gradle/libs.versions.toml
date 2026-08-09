@@ -4,7 +4,6 @@ coroutines = "1.8.1"
 coreKtx = "1.10.1"
 junit = "4.13.2"
 junitVersion = "1.1.5"
-espressoCore = "3.5.1"
 material = "1.10.0"
 room = "2.7.1"
 # Retrofit — used only in :sync-network-retrofit (OkHttp comes transitively).
@@ -86,7 +85,6 @@ okhttp-mockwebserver = { group = "com.squareup.okhttp3", name = "mockwebserver",
 junit = { group = "junit", name = "junit", version.ref = "junit" }
 turbine = { group = "app.cash.turbine", name = "turbine", version.ref = "turbine" }
 androidx-junit = { group = "androidx.test.ext", name = "junit", version.ref = "junitVersion" }
-androidx-espresso-core = { group = "androidx.test.espresso", name = "espresso-core", version.ref = "espressoCore" }
 # JVM Room test runtime: ApplicationProvider (test-core) + Robolectric, run under
 # testDebugUnitTest via the AndroidJUnit4 -> Robolectric delegation.
 androidx-test-core = { group = "androidx.test", name = "core", version.ref = "androidxTestCore" }
