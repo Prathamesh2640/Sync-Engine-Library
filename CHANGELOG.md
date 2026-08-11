@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning 2.0.0](https://semver.org/spec/
 
 ## [0.1.0] - 2026-08-11
 
-Pre-0.1.0 development. The first published artefact will be `0.1.0`.
+First public release.
 
 ### Added
 - `SyncEngine.stats: StateFlow<SyncStats>` — pending/failed/conflict counts, the last run's finish
