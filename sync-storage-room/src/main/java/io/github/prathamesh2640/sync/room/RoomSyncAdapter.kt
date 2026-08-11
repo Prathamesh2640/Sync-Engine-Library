@@ -214,10 +214,10 @@ public class RoomSyncAdapter<T : SyncableEntity> @JvmOverloads constructor(
         withContext(ioDispatcher) { upsert.invoke(entities) }
     }
 
-    // ponytail: one transaction per call, so a run's per-entity markSyncState writes
-    // open N transactions. SQLite wraps every bare statement in an implicit
-    // transaction anyway, so this is near-free; batch into a single transaction only
-    // if a profiler shows write amplification on large batches.
+    // One transaction per call, so a run's per-entity markSyncState writes open N
+    // transactions. SQLite wraps every bare statement in an implicit transaction anyway,
+    // so this is near-free; revisit only if a profiler shows write amplification on
+    // large batches.
     //
     // Upsert as INSERT OR IGNORE + UPDATE rather than SQLite's native
     // `ON CONFLICT ... DO UPDATE` (3.24+): Robolectric's shadow SQLite engine

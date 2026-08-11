@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning 2.0.0](https://semver.org/spec/
 
 ## [Unreleased]
 
+## [0.1.0] - 2026-08-11
+
 Pre-0.1.0 development. The first published artefact will be `0.1.0`.
 
 ### Added
@@ -178,4 +180,5 @@ Pre-0.1.0 development. The first published artefact will be `0.1.0`.
   testing, FAQ, and versioning.
 - SETUP.md with the developer environment requirements.
 
-[Unreleased]: https://github.com/Prathamesh2640/Sync-Engine-Library/commits/main
+[Unreleased]: https://github.com/Prathamesh2640/Sync-Engine-Library/compare/v0.1.0...main
+[0.1.0]: https://github.com/Prathamesh2640/Sync-Engine-Library/releases/tag/v0.1.0
