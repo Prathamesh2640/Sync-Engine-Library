@@ -25,7 +25,7 @@ class SyncQueueTest {
         val drained = queue.drainBatch(10).map { it.id }
 
         assertEquals(listOf("a", "b", "c"), drained)
-        assertEquals(0, queue.size())
+        assertTrue("drained items are removed from the queue", queue.drainBatch(10).isEmpty())
     }
 
     @Test
@@ -36,7 +36,7 @@ class SyncQueueTest {
         val batch = queue.drainBatch(50)
 
         assertEquals(50, batch.size)
-        assertEquals(50, queue.size())
+        assertEquals("the other 50 are still queued", 50, queue.drainBatch(1000).size)
         // The first 50 by insertion order are the ones drained.
         assertEquals("id-0", batch.first().id)
         assertEquals("id-49", batch.last().id)
@@ -48,7 +48,7 @@ class SyncQueueTest {
         repeat(3) { queue.enqueue(note("id-$it")) }
 
         assertEquals(3, queue.drainBatch(50).size)
-        assertTrue(queue.isEmpty())
+        assertTrue(queue.drainBatch(50).isEmpty())
     }
 
     @Test
@@ -58,7 +58,7 @@ class SyncQueueTest {
 
         assertTrue(queue.drainBatch(0).isEmpty())
         assertTrue(queue.drainBatch(-5).isEmpty())
-        assertEquals(1, queue.size())
+        assertEquals(1, queue.drainBatch(10).size)
     }
 
     @Test
@@ -68,7 +68,6 @@ class SyncQueueTest {
         assertTrue("first insert of an id is new", queue.enqueue(note("x", lastModified = 1L)))
         assertFalse("second insert of same id coalesces", queue.enqueue(note("x", lastModified = 2L)))
 
-        assertEquals(1, queue.size())
         val drained = queue.drainBatch(10)
         assertEquals(1, drained.size)
         assertEquals("latest version wins", 2L, drained.single().lastModified)
@@ -89,8 +88,6 @@ class SyncQueueTest {
         }
         jobs.forEach { it.join() }
 
-        assertEquals(coroutines * perCoroutine, queue.size())
-
         // Drain everything and confirm every id is unique and present.
         val all = mutableListOf<Note>()
         while (true) {
@@ -100,13 +97,12 @@ class SyncQueueTest {
         }
         assertEquals(coroutines * perCoroutine, all.size)
         assertEquals(coroutines * perCoroutine, all.map { it.id }.toSet().size)
-        assertTrue(queue.isEmpty())
     }
 
     @Test
     fun `enqueueAll adds every entity`() = runTest {
         val queue = SyncQueue<Note>()
         queue.enqueueAll(listOf(note("a"), note("b"), note("c")))
-        assertEquals(3, queue.size())
+        assertEquals(3, queue.drainBatch(10).size)
     }
 }

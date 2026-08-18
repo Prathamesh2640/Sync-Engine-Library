@@ -51,28 +51,10 @@ public interface LocalSyncStore<T : SyncableEntity> {
     public suspend fun getPending(): List<T>
 
     /**
-     * Look up a single entity by its [SyncableEntity.id].
-     *
-     * @param id the stable UUID-v4 identifier.
-     * @return the entity, or `null` if no row has that id (never throws on a miss).
-     */
-    public suspend fun getById(id: String): T?
-
-    /**
-     * Look up the [SyncMetadata] for the entity identified by [id].
-     *
-     * @param id the [SyncableEntity.id] of the row to look up.
-     * @return the metadata, or `null` if [id] has never been enqueued (i.e.
-     *   [markSyncState] or [markDeleted] has never been called for it).
-     */
-    public suspend fun getMetadata(id: String): SyncMetadata?
-
-    /**
      * Look up several entities at once by [SyncableEntity.id].
      *
-     * The batched counterpart to [getById] — the engine's pull phase uses this
-     * (once per pull, not once per entity) to avoid an N+1 query pattern when
-     * reconciling a batch of remote changes.
+     * The engine's pull phase uses this (once per pull, not once per entity) to
+     * avoid an N+1 query pattern when reconciling a batch of remote changes.
      *
      * @param ids the ids to look up.
      * @return a map from id to entity, containing only the ids that matched a
@@ -83,7 +65,7 @@ public interface LocalSyncStore<T : SyncableEntity> {
     /**
      * Look up several entities' [SyncMetadata] at once by id.
      *
-     * The batched counterpart to [getMetadata] — see [getByIds].
+     * See [getByIds].
      *
      * @param ids the ids to look up.
      * @return a map from id to metadata, containing only the ids that have been

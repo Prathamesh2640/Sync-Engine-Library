@@ -128,15 +128,6 @@ public class RoomSyncAdapter<T : SyncableEntity> @JvmOverloads constructor(
         )
     }
 
-    override suspend fun getById(id: String): T? = withContext(ioDispatcher) {
-        rawQuery(
-            SimpleSQLiteQuery(
-                "SELECT * FROM `$table` WHERE $colId = ? LIMIT 1",
-                arrayOf<Any?>(id),
-            ),
-        ).firstOrNull()
-    }
-
     override suspend fun getByIds(ids: List<String>): Map<String, T> {
         if (ids.isEmpty()) return emptyMap()
         return withContext(ioDispatcher) {
@@ -169,18 +160,6 @@ public class RoomSyncAdapter<T : SyncableEntity> @JvmOverloads constructor(
                 }
             }
             result
-        }
-    }
-
-    override suspend fun getMetadata(id: String): SyncMetadata? = withContext(ioDispatcher) {
-        database.openHelper.readableDatabase.query(
-            SimpleSQLiteQuery("SELECT syncState, isDeleted FROM `$metaTable` WHERE id = ? LIMIT 1", arrayOf<Any?>(id)),
-        ).use { cursor ->
-            if (!cursor.moveToFirst()) return@use null
-            SyncMetadata(
-                syncState = SyncState.valueOf(cursor.getString(0)),
-                isDeleted = cursor.getInt(1) != 0,
-            )
         }
     }
 
