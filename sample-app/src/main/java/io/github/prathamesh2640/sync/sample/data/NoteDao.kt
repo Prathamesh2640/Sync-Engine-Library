@@ -46,7 +46,4 @@ interface NoteDao {
             "WHERE notes_sync_meta.isDeleted = 0 ORDER BY notes.lastModified DESC",
     )
     fun activeNotes(): Flow<List<NoteWithState>>
-
-    @Query("SELECT * FROM notes WHERE id = :id LIMIT 1")
-    suspend fun findById(id: String): Note?
 }

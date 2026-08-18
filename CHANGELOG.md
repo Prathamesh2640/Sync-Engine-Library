@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning 2.0.0](https://semver.org/spec/
 
 ## [Unreleased]
 
+### Removed
+- **Breaking:** `LocalSyncStore.getById`/`getMetadata` — the single-item lookups had no caller in the
+  engine; every read path already goes through the batched `getByIds`/`getMetadataByIds`. Same pattern
+  as `getByState`'s removal pre-1.0: an unused method on a published interface is a maintenance cost on
+  every future `LocalSyncStore` implementer with no engine behavior behind it. `RoomSyncAdapter` drops
+  the matching overrides.
+
 ## [0.1.0] - 2026-08-11
 
 First public release.

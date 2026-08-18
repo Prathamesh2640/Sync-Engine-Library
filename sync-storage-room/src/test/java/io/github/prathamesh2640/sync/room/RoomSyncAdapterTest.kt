@@ -69,6 +69,10 @@ class RoomSyncAdapterTest {
     private fun note(id: String, lastModified: Long = now, title: String = "t-$id") =
         TestNote(id = id, title = title, lastModified = lastModified)
 
+    /** Single-item lookups aren't on the public [RoomSyncAdapter] API (the batch form covers it) — these fixtures use it via [getByIds]/[getMetadataByIds] so the tests below don't need to change shape. */
+    private suspend fun <T : SyncableEntity> RoomSyncAdapter<T>.getById(id: String): T? = getByIds(listOf(id))[id]
+    private suspend fun <T : SyncableEntity> RoomSyncAdapter<T>.getMetadata(id: String) = getMetadataByIds(listOf(id))[id]
+
     /** Insert a host row plus arbitrary sync metadata directly — mirrors a pre-existing fixture, not the public API (`markDeleted` always resets state to PENDING, which not every fixture here wants). */
     private suspend fun seed(id: String, state: SyncState, deleted: Boolean = false, lastModified: Long = now) {
         db.noteDao().upsert(note(id, lastModified))

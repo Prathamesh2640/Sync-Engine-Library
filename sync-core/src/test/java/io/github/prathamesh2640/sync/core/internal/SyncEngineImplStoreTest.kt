@@ -43,10 +43,6 @@ class SyncEngineImplStoreTest {
         override suspend fun getPending(): List<Note> =
             rows.values.filter { metadata[it.id]?.syncState == SyncState.PENDING }
 
-        override suspend fun getById(id: String): Note? = rows[id]
-
-        override suspend fun getMetadata(id: String): SyncMetadata? = metadata[id]
-
         override suspend fun getByIds(ids: List<String>): Map<String, Note> =
             ids.mapNotNull { id -> rows[id]?.let { id to it } }.toMap()
 

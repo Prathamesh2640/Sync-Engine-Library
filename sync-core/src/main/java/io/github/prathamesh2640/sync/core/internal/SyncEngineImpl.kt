@@ -316,7 +316,7 @@ internal class SyncEngineImpl<T : SyncableEntity>(
 
         val remote = when (val result = pullRemote(pullSince.get())) {
             is NetworkResult.Success -> result.data
-            else -> return PullOutcome(downloadedCount = 0, conflictCount = 0, errors = listOf(result.toListSyncError()))
+            else -> return PullOutcome(downloadedCount = 0, conflictCount = 0, errors = listOf(result.toSyncError()))
         }
         if (remote.isEmpty()) return PullOutcome.EMPTY
 
@@ -556,22 +556,15 @@ internal class SyncEngineImpl<T : SyncableEntity>(
 }
 
 /**
- * Map a non-success push [NetworkResult] onto the public [SyncError] vocabulary.
+ * Map a non-success [NetworkResult] (push, pull, or delete) onto the public
+ * [SyncError] vocabulary.
  *
  * Note the imperfect fit for [NetworkResult.UnknownError]: the locked public
  * [SyncError] has no "unexpected" branch, so it is reported as
  * [SyncError.StorageError] carrying the original cause. See memory.md
  * ISSUE-014 — adding a dedicated branch is a future, source-breaking change.
  */
-private fun NetworkResult<Unit>.toSyncError(): SyncError = when (this) {
-    is NetworkResult.Success -> error("Success is not an error outcome")
-    is NetworkResult.HttpError -> SyncError.HttpError(code)
-    is NetworkResult.NetworkError -> SyncError.NetworkUnavailable
-    is NetworkResult.UnknownError -> SyncError.StorageError(cause)
-}
-
-/** As [toSyncError] but for the list-returning pull result. */
-private fun NetworkResult<List<*>>.toListSyncError(): SyncError = when (this) {
+private fun NetworkResult<*>.toSyncError(): SyncError = when (this) {
     is NetworkResult.Success -> error("Success is not an error outcome")
     is NetworkResult.HttpError -> SyncError.HttpError(code)
     is NetworkResult.NetworkError -> SyncError.NetworkUnavailable

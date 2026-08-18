@@ -80,9 +80,4 @@ internal class SyncQueue<T : SyncableEntity> {
         }
     }
 
-    /** The number of distinct entities currently queued. */
-    suspend fun size(): Int = mutex.withLock { pending.size }
-
-    /** `true` when no entities are queued. */
-    suspend fun isEmpty(): Boolean = mutex.withLock { pending.isEmpty() }
 }
