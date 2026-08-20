@@ -7,6 +7,42 @@ and this project adheres to [Semantic Versioning 2.0.0](https://semver.org/spec/
 
 ## [Unreleased]
 
+### Fixed
+- **`RoomSyncAdapter` no longer exceeds SQLite's bind-variable limit.** `getByIds`, `getMetadataByIds`,
+  `hardDelete` and `purgeExpiredTombstones` built one `?` placeholder per id in a single `IN (...)`
+  clause. Those id lists are sized by the server's pull response and by the local tombstone count, so
+  nothing in the library bounded them — and SQLite's `SQLITE_MAX_VARIABLE_NUMBER` is 999 on the SQLite
+  bundled with Android below API 33 (this module's `minSdk` is 24). A pull returning more than ~999
+  changed entities threw `SQLiteException: too many SQL variables`, which the engine reported as
+  `SyncResult.Failure(StorageError)`; because the failure happened before the pull watermark advanced,
+  every subsequent run re-requested the same oversized batch and failed identically — sync stayed
+  wedged for the life of the install. Most likely to bite on a first sync, and on the full re-pull that
+  follows every process restart. All four now split into statements of at most 900 bind arguments; the
+  chunked delete still runs inside one transaction, so it remains atomic.
+- **A throwing `LocalSyncStore` no longer crashes the host app at construction.** The best-effort
+  initial `counts()` call ran in a root coroutine on the engine's scope, which has no
+  `CoroutineExceptionHandler` — an escaping `SQLiteException` (missing metadata table, corrupt or
+  locked database) therefore reached Android's default uncaught-exception handler and killed the
+  process, typically during `Application.onCreate`. It is now caught: stats stay at zero and the next
+  `triggerSync()` surfaces the real problem as a `SyncResult`.
+- **`syncState` no longer sticks at `SYNCING` after a collaborator throws.** `triggerSync()` already
+  converted an unexpected throwable into `SyncResult.Failure`, but left the state machine parked in
+  `SYNCING`, so any UI bound to `syncState` (including `SyncDashboard`) spun until some later run
+  happened to complete. The engine now settles the machine to `FAILED` on that path.
+
+### Changed
+- **Breaking:** `LocalSyncStore.getPending()` takes a `limit` — `getPending(limit: Int)`. It previously
+  returned *every* pending row; the engine then drained only `batchSize` of them (50 by default) and
+  held the remainder in its in-memory queue. A host that had been offline long enough to accumulate a
+  large backlog therefore loaded the entire backlog into memory on every run just to send a batch of
+  it — worst exactly in the scenario an offline-first library exists for. The engine now passes
+  `SyncEngineConfig.batchSize`, so a run reads only what it can actually push. `RoomSyncAdapter`
+  implements it as `ORDER BY <modifiedColumn> ASC LIMIT ?`; the ordering is new too, and is what makes
+  the limit select the oldest slice of the backlog rather than an arbitrary one. Values `<= 0` return
+  nothing, matching the engine queue's own drain semantics (and keeping a negative limit from becoming
+  SQLite's unbounded `LIMIT -1`). Custom `LocalSyncStore` implementations must add the parameter and
+  should honour it.
+
 ### Removed
 - **Breaking:** `LocalSyncStore.getById`/`getMetadata` — the single-item lookups had no caller in the
   engine; every read path already goes through the batched `getByIds`/`getMetadataByIds`. Same pattern

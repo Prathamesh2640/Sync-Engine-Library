@@ -40,8 +40,13 @@ class SyncEngineImplStoreTest {
         var lastPurgeRetentionDays: Int? = null
             private set
 
-        override suspend fun getPending(): List<Note> =
-            rows.values.filter { metadata[it.id]?.syncState == SyncState.PENDING }
+        var lastPendingLimit: Int? = null
+            private set
+
+        override suspend fun getPending(limit: Int): List<Note> {
+            lastPendingLimit = limit
+            return rows.values.filter { metadata[it.id]?.syncState == SyncState.PENDING }.take(limit)
+        }
 
         override suspend fun getByIds(ids: List<String>): Map<String, Note> =
             ids.mapNotNull { id -> rows[id]?.let { id to it } }.toMap()
@@ -112,6 +117,25 @@ class SyncEngineImplStoreTest {
     }
 
     // --- seeding + write-back --------------------------------------------------
+
+    @Test
+    fun `engine asks the store only for one batch worth of pending work`() = runTest {
+        // Ten pending rows, batchSize 3: a run can only push 3, so pulling all ten
+        // into memory to send 3 is exactly the backlog cost the limit exists to avoid.
+        val store = FakeStore((0 until 10).map { note("n$it") })
+        val engine = SyncEngineImpl(
+            SuccessAdapter(),
+            SyncEngineConfig { batchSize = 3 },
+            UnconfinedTestDispatcher(testScheduler),
+            store = store,
+        )
+
+        val result = engine.triggerSync()
+
+        assertEquals(3, store.lastPendingLimit)
+        assertEquals(SyncResult.Success(syncedCount = 3, conflictCount = 0), result)
+        assertEquals("the other seven stay pending for the next run", 7, store.counts().pending)
+    }
 
     @Test
     fun `engine seeds queue from store and marks every pushed entity SYNCED`() = runTest {

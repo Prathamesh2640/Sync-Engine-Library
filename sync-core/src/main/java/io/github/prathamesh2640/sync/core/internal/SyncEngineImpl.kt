@@ -154,7 +154,21 @@ internal class SyncEngineImpl<T : SyncableEntity>(
         // stay null here — they only mean something once a run actually finishes.
         if (store != null) {
             engineScope.launch {
-                val counts = store.counts()
+                // Best-effort really does mean best-effort: this runs in a root
+                // coroutine, so an escaping throwable would reach Android's default
+                // uncaught-exception handler and take the host process down at
+                // engine-construction time — typically app startup. A store that
+                // cannot answer here (missing metadata table, corrupt or locked
+                // database) must leave stats at zero, not crash the host; the next
+                // triggerSync surfaces the real problem as a SyncResult.
+                val counts = try {
+                    store.counts()
+                } catch (cancellation: CancellationException) {
+                    throw cancellation
+                } catch (throwable: Throwable) {
+                    log(LogLevel.WARN) { "initial counts unavailable: ${throwable::class.simpleName}" }
+                    return@launch
+                }
                 _stats.update { it.copy(pending = counts.pending, failed = counts.failed, conflict = counts.conflict) }
             }
         }
@@ -186,6 +200,10 @@ internal class SyncEngineImpl<T : SyncableEntity>(
         } catch (throwable: Throwable) {
             // SEC-12: the store/adapter contracts forbid throwing, but defend the
             // boundary — a misbehaving collaborator must not crash the host app.
+            // runOnce() already moved the machine to SYNCING, so settle it here too:
+            // otherwise syncState is stuck reporting SYNCING until some later run
+            // happens to finish, and any UI bound to it spins forever.
+            stateMachine.transitionTo(SyncState.FAILED)
             SyncResult.Failure(SyncError.StorageError(throwable))
         } finally {
             syncMutex.unlock()
@@ -227,7 +245,12 @@ internal class SyncEngineImpl<T : SyncableEntity>(
         // Storage-backed engines: seed the in-memory queue from the durable store
         // so pending work survives process death. Coalescing by id makes
         // re-seeding an already-queued entity harmless. No-op without a store.
-        store?.let { queue.enqueueAll(it.getPending()) }
+        //
+        // Seed at most batchSize — the most this run can drain anyway. Asking for
+        // the whole backlog would pull every pending row into memory on every run
+        // just to send `batchSize` of them, which is worst exactly where it hurts
+        // most: a device that has been offline long enough to build one up.
+        store?.let { queue.enqueueAll(it.getPending(config.batchSize)) }
 
         val batch = queue.drainBatch(config.batchSize)
         if (batch.isEmpty()) return PushOutcome(syncedCount = 0, errors = emptyList())

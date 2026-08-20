@@ -119,44 +119,52 @@ public class RoomSyncAdapter<T : SyncableEntity> @JvmOverloads constructor(
     private val colId: String = validateIdentifier(idColumn)
     private val colModified: String = validateIdentifier(modifiedColumn)
 
-    override suspend fun getPending(): List<T> = withContext(ioDispatcher) {
-        rawQuery(
-            SimpleSQLiteQuery(
-                "SELECT t.* FROM `$table` t JOIN `$metaTable` m ON t.$colId = m.id WHERE m.syncState = ?",
-                arrayOf<Any?>(SyncState.PENDING.name),
-            ),
-        )
+    override suspend fun getPending(limit: Int): List<T> {
+        if (limit <= 0) return emptyList()
+        return withContext(ioDispatcher) {
+            // ORDER BY is what makes the LIMIT meaningful: without it SQLite returns
+            // an arbitrary slice of the backlog, and the interface promises the
+            // oldest-modified entities first.
+            rawQuery(
+                SimpleSQLiteQuery(
+                    "SELECT t.* FROM `$table` t JOIN `$metaTable` m ON t.$colId = m.id " +
+                        "WHERE m.syncState = ? ORDER BY t.$colModified ASC LIMIT ?",
+                    arrayOf<Any?>(SyncState.PENDING.name, limit),
+                ),
+            )
+        }
     }
 
     override suspend fun getByIds(ids: List<String>): Map<String, T> {
         if (ids.isEmpty()) return emptyMap()
         return withContext(ioDispatcher) {
-            val placeholders = ids.joinToString(separator = ",") { "?" }
-            rawQuery(
-                SimpleSQLiteQuery(
-                    "SELECT * FROM `$table` WHERE $colId IN ($placeholders)",
-                    Array<Any?>(ids.size) { ids[it] },
-                ),
-            ).associateBy { it.id }
+            val result = LinkedHashMap<String, T>(ids.size)
+            for ((placeholders, args) in chunkedIn(ids)) {
+                rawQuery(
+                    SimpleSQLiteQuery("SELECT * FROM `$table` WHERE $colId IN ($placeholders)", args),
+                ).associateByTo(result) { it.id }
+            }
+            result
         }
     }
 
     override suspend fun getMetadataByIds(ids: List<String>): Map<String, SyncMetadata> {
         if (ids.isEmpty()) return emptyMap()
         return withContext(ioDispatcher) {
-            val placeholders = ids.joinToString(separator = ",") { "?" }
             val result = LinkedHashMap<String, SyncMetadata>(ids.size)
-            database.openHelper.readableDatabase.query(
-                SimpleSQLiteQuery(
-                    "SELECT id, syncState, isDeleted FROM `$metaTable` WHERE id IN ($placeholders)",
-                    Array<Any?>(ids.size) { ids[it] },
-                ),
-            ).use { cursor ->
-                while (cursor.moveToNext()) {
-                    result[cursor.getString(0)] = SyncMetadata(
-                        syncState = SyncState.valueOf(cursor.getString(1)),
-                        isDeleted = cursor.getInt(2) != 0,
-                    )
+            for ((placeholders, args) in chunkedIn(ids)) {
+                database.openHelper.readableDatabase.query(
+                    SimpleSQLiteQuery(
+                        "SELECT id, syncState, isDeleted FROM `$metaTable` WHERE id IN ($placeholders)",
+                        args,
+                    ),
+                ).use { cursor ->
+                    while (cursor.moveToNext()) {
+                        result[cursor.getString(0)] = SyncMetadata(
+                            syncState = SyncState.valueOf(cursor.getString(1)),
+                            isDeleted = cursor.getInt(2) != 0,
+                        )
+                    }
                 }
             }
             result
@@ -230,17 +238,7 @@ public class RoomSyncAdapter<T : SyncableEntity> @JvmOverloads constructor(
 
     override suspend fun hardDelete(ids: List<String>) {
         if (ids.isEmpty()) return
-        database.withTransaction {
-            val placeholders = ids.joinToString(separator = ",") { "?" }
-            database.openHelper.writableDatabase.execSQL(
-                "DELETE FROM `$table` WHERE $colId IN ($placeholders)",
-                Array<Any?>(ids.size) { ids[it] },
-            )
-            database.openHelper.writableDatabase.execSQL(
-                "DELETE FROM `$metaTable` WHERE id IN ($placeholders)",
-                Array<Any?>(ids.size) { ids[it] },
-            )
-        }
+        database.withTransaction { deleteRows(ids) }
         database.invalidationTracker.refreshVersionsAsync()
     }
 
@@ -265,23 +263,50 @@ public class RoomSyncAdapter<T : SyncableEntity> @JvmOverloads constructor(
             }
             if (expiredIds.isEmpty()) return@withTransaction 0
 
-            val placeholders = expiredIds.joinToString(separator = ",") { "?" }
-            db.execSQL(
-                "DELETE FROM `$table` WHERE $colId IN ($placeholders)",
-                Array<Any?>(expiredIds.size) { expiredIds[it] },
-            )
-            db.execSQL(
-                "DELETE FROM `$metaTable` WHERE id IN ($placeholders)",
-                Array<Any?>(expiredIds.size) { expiredIds[it] },
-            )
+            deleteRows(expiredIds)
             expiredIds.size
         }
         if (purged > 0) database.invalidationTracker.refreshVersionsAsync()
         return purged
     }
 
+    /**
+     * Split [ids] into `IN (...)` clauses no wider than [MAX_BIND_ARGS], yielding the
+     * placeholder string and bound arguments for each. Every id list this store
+     * receives is sized by something outside the library's control — the server's
+     * pull response, the tombstone count — so no call site may assume it fits in a
+     * single statement.
+     */
+    private fun chunkedIn(ids: List<String>): List<Pair<String, Array<Any?>>> =
+        ids.chunked(MAX_BIND_ARGS).map { chunk ->
+            chunk.joinToString(separator = ",") { "?" } to Array<Any?>(chunk.size) { chunk[it] }
+        }
+
+    /**
+     * Delete [ids] from both the host table and the metadata table. The caller
+     * supplies the transaction, so a chunked delete still commits atomically.
+     */
+    private fun deleteRows(ids: List<String>) {
+        val db = database.openHelper.writableDatabase
+        for ((placeholders, args) in chunkedIn(ids)) {
+            db.execSQL("DELETE FROM `$table` WHERE $colId IN ($placeholders)", args)
+            db.execSQL("DELETE FROM `$metaTable` WHERE id IN ($placeholders)", args)
+        }
+    }
+
     private companion object {
         const val MILLIS_PER_DAY = 24L * 60L * 60L * 1000L
+
+        /**
+         * Widest `IN (...)` list this store will compile into one statement.
+         *
+         * SQLite's `SQLITE_MAX_VARIABLE_NUMBER` is **999** on the SQLite bundled with
+         * Android below API 33 (it only rose to 32766 with SQLite 3.32); this module's
+         * `minSdk` is 24, so the low ceiling is the one that matters. Exceeding it
+         * throws `SQLiteException: too many SQL variables`. 900 leaves headroom for the
+         * non-id arguments a statement may also bind.
+         */
+        const val MAX_BIND_ARGS = 900
 
         val IDENTIFIER = Regex("^[A-Za-z_][A-Za-z0-9_]*$")
 

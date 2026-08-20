@@ -171,7 +171,7 @@ Pass a resolver to `SyncEngine.create(..., resolver = ...)` to enable two-way sy
 
 ```kotlin
 interface LocalSyncStore<T : SyncableEntity> {
-    suspend fun getPending(): List<T>
+    suspend fun getPending(limit: Int): List<T>       // at most `limit`, oldest-first
     suspend fun getByIds(ids: List<String>): Map<String, T>
     suspend fun getMetadataByIds(ids: List<String>): Map<String, SyncMetadata>
     suspend fun counts(): SyncCounts                    // pending/failed/conflict — backs engine.stats
