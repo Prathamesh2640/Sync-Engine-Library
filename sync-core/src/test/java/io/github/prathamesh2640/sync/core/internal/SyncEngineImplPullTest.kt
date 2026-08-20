@@ -47,7 +47,8 @@ class SyncEngineImplPullTest {
 
         val getMetadataByIdsCalls = mutableListOf<List<String>>()
 
-        override suspend fun getPending() = rows.values.filter { metadata[it.id]?.syncState == SyncState.PENDING }
+        override suspend fun getPending(limit: Int) =
+            rows.values.filter { metadata[it.id]?.syncState == SyncState.PENDING }.take(limit)
         override suspend fun getByIds(ids: List<String>) = ids.mapNotNull { id -> rows[id]?.let { id to it } }.toMap()
         override suspend fun getMetadataByIds(ids: List<String>): Map<String, SyncMetadata> {
             getMetadataByIdsCalls += ids

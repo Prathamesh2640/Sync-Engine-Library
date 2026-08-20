@@ -16,15 +16,14 @@ import java.io.Closeable
  *
  * An engine owns a coroutine scope and observes/mutates the sync state of the
  * entities registered with it. Host apps interact only with this interface —
- * the implementation (`SyncEngineImpl`) is `internal` and arrives in a later
- * commit, together with the `SyncEngine.create(...)` factory that constructs it.
+ * the implementation is `internal` and is obtained from [create].
  *
  * [SyncEngine] extends [Closeable]: call [close] (or use Kotlin's `use { }` /
  * Java try-with-resources) to cancel the engine's scope and release resources.
  * A closed engine must not be reused.
  *
  * ```kotlin
- * // Usage sketch (factory lands with the implementation):
+ * val engine = SyncEngine.create(adapter)
  * engine.syncState
  *     .onEach { state -> updateUi(state) }
  *     .launchIn(uiScope)

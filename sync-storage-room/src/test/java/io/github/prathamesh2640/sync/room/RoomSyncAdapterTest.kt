@@ -88,12 +88,31 @@ class RoomSyncAdapterTest {
     fun pending_to_synced_flow() = runTest {
         seed("a", SyncState.PENDING)
 
-        assertEquals(listOf("a"), store.getPending().map { it.id })
+        assertEquals(listOf("a"), store.getPending(limit = 100).map { it.id })
 
         store.markSyncState("a", SyncState.SYNCED)
 
-        assertTrue("no longer pending", store.getPending().isEmpty())
+        assertTrue("no longer pending", store.getPending(limit = 100).isEmpty())
         assertEquals(SyncState.SYNCED, store.getMetadata("a")?.syncState)
+    }
+
+    @Test
+    fun getPending_caps_at_limit_and_returns_oldest_first() = runTest {
+        // Seeded newest-first so insertion order can't be what makes this pass.
+        seed("newest", SyncState.PENDING, lastModified = now + 300)
+        seed("middle", SyncState.PENDING, lastModified = now + 200)
+        seed("oldest", SyncState.PENDING, lastModified = now + 100)
+
+        assertEquals(listOf("oldest", "middle"), store.getPending(limit = 2).map { it.id })
+        assertEquals(listOf("oldest", "middle", "newest"), store.getPending(limit = 10).map { it.id })
+    }
+
+    @Test
+    fun getPending_returns_nothing_for_a_non_positive_limit() = runTest {
+        seed("a", SyncState.PENDING)
+
+        assertTrue(store.getPending(limit = 0).isEmpty())
+        assertTrue("a negative limit must not become SQLite's unbounded LIMIT -1", store.getPending(limit = -1).isEmpty())
     }
 
     @Test
@@ -105,7 +124,7 @@ class RoomSyncAdapterTest {
     fun getMetadata_returns_null_when_never_enqueued() = runTest {
         db.noteDao().upsert(note("orphan")) // host row exists, but never marked for sync
         assertNull(store.getMetadata("orphan"))
-        assertTrue("an un-enqueued row is not pending", store.getPending().isEmpty())
+        assertTrue("an un-enqueued row is not pending", store.getPending(limit = 100).isEmpty())
     }
 
     @Test
@@ -137,7 +156,7 @@ class RoomSyncAdapterTest {
         store.markSyncState("a", SyncState.PENDING)
 
         assertEquals(SyncState.PENDING, store.getMetadata("a")?.syncState)
-        assertEquals(listOf("a"), store.getPending().map { it.id })
+        assertEquals(listOf("a"), store.getPending(limit = 100).map { it.id })
     }
 
     @Test
@@ -171,7 +190,7 @@ class RoomSyncAdapterTest {
 
         assertNotNull(store.getById("a"))
         assertEquals(SyncState.PENDING, store.getMetadata("a")?.syncState)
-        assertEquals(listOf("a"), store.getPending().map { it.id })
+        assertEquals(listOf("a"), store.getPending(limit = 100).map { it.id })
     }
 
     // --- tombstones -----------------------------------------------------------
@@ -371,7 +390,7 @@ class RoomSyncAdapterTest {
             arrayOf<Any?>("old-tombstone", SyncState.FAILED.name),
         )
 
-        assertEquals(listOf("live"), renamedStore.getPending().map { it.id })
+        assertEquals(listOf("live"), renamedStore.getPending(limit = 100).map { it.id })
 
         renamedStore.markSyncState("live", SyncState.SYNCED)
         assertEquals(SyncState.SYNCED, renamedStore.getMetadata("live")?.syncState)
@@ -383,6 +402,52 @@ class RoomSyncAdapterTest {
 
         renamedStore.hardDelete(listOf("live"))
         assertNull(renamedStore.getById("live"))
+    }
+
+    // --- SQLite bind-variable ceiling ----------------------------------------
+
+    /**
+     * An `IN (...)` list wider than SQLite's `SQLITE_MAX_VARIABLE_NUMBER` must not
+     * blow up. The id lists these methods take are sized by the *server's* pull
+     * response and by the tombstone count, so nothing in the library bounds them:
+     * a first sync, or the full re-pull that follows every process restart,
+     * routinely exceeds the 999-variable ceiling that Android below API 33 has.
+     *
+     * The statement's width comes from the id list, not the row count, so a
+     * handful of real rows is enough to prove it — no need to seed 40k of them.
+     */
+    @Test
+    fun batch_lookups_survive_an_oversized_id_list() = runTest {
+        seed("a", SyncState.PENDING)
+        seed("b", SyncState.SYNCED)
+        val ids = listOf("a", "b") + (0 until 40_000).map { "absent-$it" }
+
+        assertEquals(setOf("a", "b"), store.getByIds(ids).keys)
+        assertEquals(setOf("a", "b"), store.getMetadataByIds(ids).keys)
+
+        store.hardDelete(ids)
+        assertTrue("both rows gone", store.getByIds(listOf("a", "b")).isEmpty())
+        assertTrue("metadata gone", store.getMetadataByIds(listOf("a", "b")).isEmpty())
+    }
+
+    /** The purge path shares [RoomSyncAdapter]'s chunked delete; check it still purges. */
+    @Test
+    fun purge_deletes_every_expired_tombstone() = runTest {
+        val ids = (0 until 50).map { "old-$it" }
+        db.noteDao().upsertAll(ids.map { note(it, lastModified = now - 100L * MILLIS_PER_DAY) })
+        for (id in ids) {
+            db.openHelper.writableDatabase.execSQL(
+                "INSERT INTO notes_sync_meta (id, syncState, isDeleted) VALUES (?, ?, 1)",
+                arrayOf<Any?>(id, SyncState.FAILED.name),
+            )
+        }
+
+        assertEquals(ids.size, store.purgeExpiredTombstones(retentionDays = 30))
+        assertTrue("all tombstones purged", store.getTombstones().isEmpty())
+    }
+
+    private companion object {
+        const val MILLIS_PER_DAY = 24L * 60L * 60L * 1000L
     }
 }
 

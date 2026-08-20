@@ -38,17 +38,33 @@ import io.github.prathamesh2640.sync.core.model.SyncableEntity
 public interface LocalSyncStore<T : SyncableEntity> {
 
     /**
-     * All entities awaiting their first successful sync — i.e. those whose
-     * [SyncMetadata.syncState] is [SyncState.PENDING].
+     * Up to [limit] entities awaiting their first successful sync — i.e. those
+     * whose [SyncMetadata.syncState] is [SyncState.PENDING].
      *
      * The engine seeds its in-flight batch from this list, so returning stale or
      * duplicate ids is harmless (the queue coalesces by [SyncableEntity.id]), but
      * returning entities in a state other than `PENDING` is a contract violation.
      *
-     * @return the pending entities, oldest-first where the backing store can
-     *   preserve order; never `null` (empty when nothing is pending).
+     * **[limit] is not advisory.** The engine passes its
+     * [io.github.prathamesh2640.sync.core.engine.SyncEngineConfig.batchSize] — the
+     * most it can push in one run — precisely so a host that has been offline long
+     * enough to accumulate a large backlog does not load the whole backlog into
+     * memory on every run just to send a batch of it. An implementation that
+     * ignores [limit] reintroduces that cost. Returning *fewer* than [limit] is
+     * always fine; a run drains what it gets and picks up the rest next time.
+     *
+     * Ordering decides which slice of the backlog a run sees, so return the
+     * oldest-modified entities first where the backing store can express it.
+     * Progress does not depend on it — a pushed entity leaves `PENDING` either
+     * way, so the next run advances to different rows — but oldest-first is what
+     * makes a long backlog drain in the order the user created it.
+     *
+     * @param limit the maximum number of entities to return. Values `<= 0` return
+     *   nothing (matching the engine queue's own drain semantics).
+     * @return at most [limit] pending entities, oldest-first where the backing
+     *   store can preserve order; never `null` (empty when nothing is pending).
      */
-    public suspend fun getPending(): List<T>
+    public suspend fun getPending(limit: Int): List<T>
 
     /**
      * Look up several entities at once by [SyncableEntity.id].
