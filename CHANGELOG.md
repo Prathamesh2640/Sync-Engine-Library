@@ -8,6 +8,16 @@ and this project adheres to [Semantic Versioning 2.0.0](https://semver.org/spec/
 ## [Unreleased]
 
 ### Fixed
+- **`:sync-ui-dashboard` now exposes `:sync-core` on consumers' compile classpath.** It declared
+  `implementation(project(":sync-core"))` on the stated grounds that no sync-core type appeared in its
+  public API — but `SyncDashboardState` is public and its `syncState` property is typed
+  `io.github.prathamesh2640.sync.core.model.SyncState`. The published Gradle metadata therefore listed
+  sync-core under `runtimeElements` only (POM scope `runtime`), so a consumer taking this module without
+  depending on sync-core itself could not compile against `SyncDashboardState` — the case that bites is
+  a host isolating debug tooling in its own module, which is a normal way to wire a debug-only
+  dashboard. Now `api(...)`. `androidx.compose.ui` moves to `api(...)` for the same reason:
+  `androidx.compose.ui.Modifier` is a parameter of the public `SyncDashboardRoute`. Runtime behaviour is
+  unchanged — both artifacts already resolved at runtime.
 - **`RoomSyncAdapter` no longer exceeds SQLite's bind-variable limit.** `getByIds`, `getMetadataByIds`,
   `hardDelete` and `purgeExpiredTombstones` built one `?` placeholder per id in a single `IN (...)`
   clause. Those id lists are sized by the server's pull response and by the local tombstone count, so

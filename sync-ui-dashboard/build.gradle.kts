@@ -30,14 +30,21 @@ android {
 }
 
 dependencies {
-    // implementation(): the dashboard observes sync state through sync-core
-    // interfaces but exposes no sync-core type in its own public API.
-    implementation(project(":sync-core"))
+    // api(): SyncDashboardState is public and its `syncState` property is typed
+    // io.github.prathamesh2640.sync.core.model.SyncState, so a sync-core type *is*
+    // in this module's public API. With implementation() sync-core lands only in
+    // the published runtime variant, and a consumer that takes this module without
+    // depending on sync-core itself cannot compile against SyncDashboardState.
+    // (This also carries kotlinx-coroutines through for the public StateFlow
+    // parameter, which sync-core already exposes via api().)
+    api(project(":sync-core"))
 
     val composeBom = platform(libs.androidx.compose.bom)
     implementation(composeBom)
     implementation(libs.androidx.compose.foundation)
-    implementation(libs.androidx.compose.ui)
+    // api(): androidx.compose.ui.Modifier appears in SyncDashboardRoute's public
+    // signature, so it belongs on consumers' compile classpath, not just runtime.
+    api(libs.androidx.compose.ui)
     implementation(libs.androidx.compose.ui.graphics)
     implementation(libs.androidx.compose.ui.tooling.preview)
     implementation(libs.androidx.compose.material3)
