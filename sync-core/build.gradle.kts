@@ -1,4 +1,5 @@
 import com.vanniktech.maven.publish.AndroidSingleVariantLibrary
+import com.vanniktech.maven.publish.SonatypeHost
 
 plugins {
     alias(libs.plugins.android.library)
@@ -52,7 +53,11 @@ mavenPublishing {
     // Manual review on the Central Portal UI before the first release goes
     // live — see PUBLISHING.md. Switch to publishAndReleaseToMavenCentral()
     // once the release process is trusted.
-    publishToMavenCentral()
+    // Explicit host: this plugin version (0.30.0) still defaults publishToMavenCentral()
+    // to the legacy OSSRH host, but this account only has a Central Portal token/namespace
+    // (no legacy staging profile) — the mismatch surfaces as a 402 "Cannot get
+    // stagingProfiles" from createStagingRepository.
+    publishToMavenCentral(SonatypeHost.CENTRAL_PORTAL)
     signAllPublications()
 
     // Version comes from the root build.gradle.kts `allprojects { version }` — the
