@@ -66,7 +66,7 @@ Ships as standard Android AARs — nothing about your host app's toolchain matte
 
 ## Install
 
-### Maven Central (once `0.1.0` is released)
+### Maven Central
 
 ```kotlin
 dependencies {
@@ -78,7 +78,7 @@ dependencies {
 }
 ```
 
-### JitPack (works today, before the first Central release)
+### JitPack (alternative — pulls directly from a git tag, no Central Portal review wait)
 
 **`settings.gradle.kts`:** add `maven { url = uri("https://jitpack.io") }` to `repositories`.
 
@@ -269,12 +269,12 @@ Every public symbol is annotated so Java callers get idiomatic APIs — a `Build
 
 ## Testing your integration
 
-**154 automated tests** across all six modules, all JVM (no emulator required).
+**161 automated tests** across all six modules, all JVM (no emulator required).
 
 | Module | Tests | Where |
 |---|---|---|
-| `:sync-core` | 107 | JVM |
-| `:sync-storage-room` | 20 (Robolectric + real Room in-memory) | JVM |
+| `:sync-core` | 110 | JVM |
+| `:sync-storage-room` | 24 (Robolectric + real Room in-memory) | JVM |
 | `:sync-network-retrofit` | 7 (MockWebServer) | JVM |
 | `:sync-workmanager` | 6 (`WorkManagerTestInitHelper` + Robolectric) | JVM |
 | `:sync-ui-dashboard` | 6 | JVM |
