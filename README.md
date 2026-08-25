@@ -185,7 +185,7 @@ interface LocalSyncStore<T : SyncableEntity> {
 }
 ```
 
-`:sync-storage-room`'s `RoomSyncAdapter` is the Room-backed implementation. Your DAO is a **plain `@Dao`** (no generic base — Room's KSP can't codegen one) with a `@RawQuery` read and an `@Upsert` write; `RoomSyncAdapter` joins your table against a small host-created `notes_sync_meta` side table (`id`/`syncState`/`isDeleted` — always that shape, created via an explicit `Migration`, never `fallbackToDestructiveMigration()`):
+`:sync-storage-room`'s `RoomSyncAdapter` is the Room-backed implementation. Your DAO is a **plain `@Dao`** (no generic base — Room's KSP can't codegen one) with a `@RawQuery` read and an `@Upsert` write; `RoomSyncAdapter` joins your table against a small host-created `notes_sync_meta` side table (`id`/`syncState`/`isDeleted` — always that shape, created via an explicit `Migration`, never `fallbackToDestructiveMigration()`). Room only runs a `Migration` when it opens an *existing* database at a lower version — a fresh install has no existing database, so `onCreate` builds straight from `@Entity` and the `Migration` never runs. Create the same table from **both** the `Migration` and a `RoomDatabase.Callback.onCreate`, or every fresh install throws `SQLiteException` on first sync:
 
 ```kotlin
 val store = RoomSyncAdapter<Note>(

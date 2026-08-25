@@ -1,0 +1,4 @@
+08-25 04:28:15.237 31349 31376 I System.out: [SyncEngine] DEBUG: sync run starting (store=true)
+08-25 04:28:15.281 31349 31375 I System.out: [SyncEngine] INFO: sync finished: synced=1 conflicts=0
+08-25 04:29:17.058 31842 31865 I System.out: [SyncEngine] DEBUG: sync run starting (store=true)
+08-25 04:29:25.171 31842 31863 I System.out: [SyncEngine] INFO: sync finished: synced=3 conflicts=0

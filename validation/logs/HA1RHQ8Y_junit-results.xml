@@ -1,0 +1,77 @@
+<?xml version='1.0' encoding='UTF-8' ?>
+<testsuites tests="25" failures="0" errors="0" skipped="0" time="214.846" timestamp="2026-08-24T22:54:27" hostname="localhost">
+  <testsuite name="com.project.confidant.ExampleInstrumentedTest" tests="1" failures="0" errors="0" skipped="0" time="0.017" timestamp="2026-08-24T22:54:27" hostname="localhost">
+    <properties>
+      <property name="device" value="Lenovo TB-X306X - 10" />
+      <property name="flavor" value="" />
+      <property name="project" value=":app" />
+    </properties>
+    <testcase name="useAppContext" classname="com.project.confidant.ExampleInstrumentedTest" time="0.017" />
+  </testsuite>
+  <testsuite name="com.project.confidant.data.AppDatabaseMigrationTest" tests="1" failures="0" errors="0" skipped="0" time="0.155" timestamp="2026-08-24T22:54:27" hostname="localhost">
+    <properties>
+      <property name="device" value="Lenovo TB-X306X - 10" />
+      <property name="flavor" value="" />
+      <property name="project" value=":app" />
+    </properties>
+    <testcase name="migrate1To2_createsNotesSyncMetaTable" classname="com.project.confidant.data.AppDatabaseMigrationTest" time="0.155" />
+  </testsuite>
+  <testsuite name="com.project.confidant.sync.ConflictScenariosTest" tests="5" failures="0" errors="0" skipped="0" time="1.627" timestamp="2026-08-24T22:54:27" hostname="localhost">
+    <properties>
+      <property name="device" value="Lenovo TB-X306X - 10" />
+      <property name="flavor" value="" />
+      <property name="project" value=":app" />
+    </properties>
+    <testcase name="c11_localNewerThanRemoteWins" classname="com.project.confidant.sync.ConflictScenariosTest" time="0.518" />
+    <testcase name="c15_clockSkewedFutureRemoteDoesNotWin" classname="com.project.confidant.sync.ConflictScenariosTest" time="0.435" />
+    <testcase name="c14_throwingResolverTreatedAsUnresolvable" classname="com.project.confidant.sync.ConflictScenariosTest" time="0.31" />
+    <testcase name="c13_noResolverSurfacesConflictUnresolvable" classname="com.project.confidant.sync.ConflictScenariosTest" time="0.156" />
+    <testcase name="c12_remoteNewerThanLocalWins" classname="com.project.confidant.sync.ConflictScenariosTest" time="0.208" />
+  </testsuite>
+  <testsuite name="com.project.confidant.sync.CoreScenariosTest" tests="9" failures="0" errors="0" skipped="0" time="5.682" timestamp="2026-08-24T22:54:27" hostname="localhost">
+    <properties>
+      <property name="device" value="Lenovo TB-X306X - 10" />
+      <property name="flavor" value="" />
+      <property name="project" value=":app" />
+    </properties>
+    <testcase name="a1_coldStartNoCrash" classname="com.project.confidant.sync.CoreScenariosTest" time="0.081" />
+    <testcase name="a3_statsInitialOnFreshStore" classname="com.project.confidant.sync.CoreScenariosTest" time="0.08" />
+    <testcase name="a2_mergedManifestHasRequiredPermissions" classname="com.project.confidant.sync.CoreScenariosTest" time="0.079" />
+    <testcase name="b6_editRequiresReEnqueue" classname="com.project.confidant.sync.CoreScenariosTest" time="0.486" />
+    <testcase name="b7_deleteTombstonesThenHardDeletes" classname="com.project.confidant.sync.CoreScenariosTest" time="0.59" />
+    <testcase name="b5_syncSuccessOnCleanPush" classname="com.project.confidant.sync.CoreScenariosTest" time="0.364" />
+    <testcase name="b9_concurrentTriggerSyncIsSingleFlight" classname="com.project.confidant.sync.CoreScenariosTest" time="0.359" />
+    <testcase name="b8_syncWithNoPendingWork" classname="com.project.confidant.sync.CoreScenariosTest" time="0.207" />
+    <testcase name="b10_batchLargerThanDefaultDrainsAcrossTwoRuns" classname="com.project.confidant.sync.CoreScenariosTest" time="3.436" />
+  </testsuite>
+  <testsuite name="com.project.confidant.sync.JavaInteropScenarioTest" tests="1" failures="0" errors="0" skipped="0" time="0.029" timestamp="2026-08-24T22:54:27" hostname="localhost">
+    <properties>
+      <property name="device" value="Lenovo TB-X306X - 10" />
+      <property name="flavor" value="" />
+      <property name="project" value=":app" />
+    </properties>
+    <testcase name="k44_javaCanConstructAndUseTheFullApiSurface" classname="com.project.confidant.sync.JavaInteropScenarioTest" time="0.029" />
+  </testsuite>
+  <testsuite name="com.project.confidant.sync.NetworkFaultScenariosTest" tests="5" failures="0" errors="0" skipped="0" time="196.528" timestamp="2026-08-24T22:54:27" hostname="localhost">
+    <properties>
+      <property name="device" value="Lenovo TB-X306X - 10" />
+      <property name="flavor" value="" />
+      <property name="project" value=":app" />
+    </properties>
+    <testcase name="d16_http500OnPush" classname="com.project.confidant.sync.NetworkFaultScenariosTest" time="0.26" />
+    <testcase name="d22_retryCounterResetsAfterSuccess" classname="com.project.confidant.sync.NetworkFaultScenariosTest" time="0.467" />
+    <testcase name="d17_malformedJsonOnPull" classname="com.project.confidant.sync.NetworkFaultScenariosTest" time="0.132" />
+    <testcase name="d21_timeoutReleasesSingleFlightLock" classname="com.project.confidant.sync.NetworkFaultScenariosTest" time="195.408" />
+    <testcase name="d18_backendUnreachable" classname="com.project.confidant.sync.NetworkFaultScenariosTest" time="0.261" />
+  </testsuite>
+  <testsuite name="com.project.confidant.sync.ScaleAndInvariantScenariosTest" tests="3" failures="0" errors="0" skipped="0" time="7.425" timestamp="2026-08-24T22:54:27" hostname="localhost">
+    <properties>
+      <property name="device" value="Lenovo TB-X306X - 10" />
+      <property name="flavor" value="" />
+      <property name="project" value=":app" />
+    </properties>
+    <testcase name="i41_noEntityContentInSyncEngineLogs" classname="com.project.confidant.sync.ScaleAndInvariantScenariosTest" time="0.256" />
+    <testcase name="h36_largeBacklogDrainsInDefaultBatches" classname="com.project.confidant.sync.ScaleAndInvariantScenariosTest" time="7.04" />
+    <testcase name="h38_outOfRangeConfigThrowsAtBuildTime" classname="com.project.confidant.sync.ScaleAndInvariantScenariosTest" time="0.129" />
+  </testsuite>
+</testsuites>

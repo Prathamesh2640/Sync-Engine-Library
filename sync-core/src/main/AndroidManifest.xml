@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!-- FINDING-001 (validation/findings.md): required for triggerSync() to reach the
+         network at all. Declared here, on the one module every consumer always depends
+         on, so it merges into the host app regardless of which other modules are used. -->
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+
+</manifest>
