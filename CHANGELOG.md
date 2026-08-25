@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning 2.0.0](https://semver.org/spec/
 
 ## [Unreleased]
 
+### Fixed
+- `:sync-core` now ships an `AndroidManifest.xml` declaring `INTERNET` and
+  `ACCESS_NETWORK_STATE`. No 0.1.0 library module declared either permission, so
+  `triggerSync()` failed as `NetworkUnavailable` against a fully reachable backend on any
+  host that hadn't added both permissions itself — contradicting README's "inherited via
+  manifest merging" claim. Found during external integration validation
+  (`validation/findings.md` FINDING-001).
+- README's `RoomSyncAdapter` section now documents that the `notes_sync_meta` `Migration`
+  must be paired with a `RoomDatabase.Callback.onCreate` running the same
+  `CREATE TABLE IF NOT EXISTS` — Room skips `Migration`s on a fresh install, so following
+  the previous guidance as written threw `SQLiteException` on first launch
+  (`validation/findings.md` FINDING-002).
+
 ## [0.1.0] - 2026-08-22
 
 First public release.
