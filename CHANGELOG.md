@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning 2.0.0](https://semver.org/spec/
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-08-25
+
 ### Fixed
 - `:sync-core` now ships an `AndroidManifest.xml` declaring `INTERNET` and
   `ACCESS_NETWORK_STATE`. No 0.1.0 library module declared either permission, so
