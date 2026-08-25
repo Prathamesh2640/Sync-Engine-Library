@@ -70,11 +70,11 @@ Ships as standard Android AARs — nothing about your host app's toolchain matte
 
 ```kotlin
 dependencies {
-    implementation("io.github.prathamesh2640:sync-core:0.1.0")               // required
-    implementation("io.github.prathamesh2640:sync-storage-room:0.1.0")       // optional
-    implementation("io.github.prathamesh2640:sync-network-retrofit:0.1.0")   // optional
-    implementation("io.github.prathamesh2640:sync-workmanager:0.1.0")        // optional
-    debugImplementation("io.github.prathamesh2640:sync-ui-dashboard:0.1.0")  // debug only — never ship in release
+    implementation("io.github.prathamesh2640:sync-core:0.1.1")               // required
+    implementation("io.github.prathamesh2640:sync-storage-room:0.1.1")       // optional
+    implementation("io.github.prathamesh2640:sync-network-retrofit:0.1.1")   // optional
+    implementation("io.github.prathamesh2640:sync-workmanager:0.1.1")        // optional
+    debugImplementation("io.github.prathamesh2640:sync-ui-dashboard:0.1.1")  // debug only — never ship in release
 }
 ```
 

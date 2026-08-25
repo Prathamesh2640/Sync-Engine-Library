@@ -27,7 +27,7 @@ plugins {
 // here bumps everything (RELEASE_CHECKLIST.md step 3).
 allprojects {
     group = "io.github.prathamesh2640"
-    version = "0.1.0"
+    version = "0.1.1"
 }
 
 // Library hygiene, centralized: every declaration in a publishable module must
