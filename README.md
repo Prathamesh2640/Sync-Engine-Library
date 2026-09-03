@@ -91,6 +91,12 @@ dependencies {
 
 Replace `<TAG>` with a released git tag. JitPack builds the AARs on first request.
 
+JitPack caches a build result per version string and won't re-check if that tag's commit
+later moves — so a tag whose first build failed (or was requested before a build-config fix
+landed) can keep serving a stale `Error` even after the tag is repointed. If `<TAG>` 404s or
+shows `Error` at `https://jitpack.io/api/builds/com.github.Prathamesh2640/Sync-Engine-Library/<TAG>`,
+use the 7-40 char commit SHA in its place instead — SHAs always rebuild fresh.
+
 ### Local development
 
 Developing the library alongside a host app, or testing an unpublished change? Use a Gradle composite build (`includeBuild("../Sync-Engine-Library")` + `dependencySubstitution` in the host's `settings.gradle.kts`) or `./gradlew publishToMavenLocal` — see [SETUP.md § 9](SETUP.md) for the full local-Maven walkthrough.
