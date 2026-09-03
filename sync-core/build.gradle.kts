@@ -58,7 +58,10 @@ mavenPublishing {
     // (no legacy staging profile) — the mismatch surfaces as a 402 "Cannot get
     // stagingProfiles" from createStagingRepository.
     publishToMavenCentral(SonatypeHost.CENTRAL_PORTAL)
-    signAllPublications()
+    // JitPack (README's alternative install path) runs `publishToMavenLocal`
+    // with no signing key configured — only sign when one is present so that
+    // build isn't forced to fail alongside the real, key-bearing Central publish.
+    if (project.hasProperty("signingInMemoryKey")) signAllPublications()
 
     // Version comes from the root build.gradle.kts `allprojects { version }` — the
     // single place to bump for a release (RELEASE_CHECKLIST.md step 3).

@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning 2.0.0](https://semver.org/spec/
 
 ## [Unreleased]
 
+### Fixed
+- JitPack builds (README's alternative install path) no longer fail. Two independent breaks:
+  JitPack's default image runs JDK 11 but this project's Gradle 9.4.1 requires 17+ (fixed via
+  a new `jitpack.yml` pinning `openjdk17`), and every module's `signAllPublications()` ran
+  unconditionally, so `publishToMavenLocal` (what JitPack invokes) failed looking for a `.asc`
+  signature file with no signing key present in that environment — now gated behind
+  `project.hasProperty("signingInMemoryKey")`, so it still signs for the real Central publish
+  (CI supplies the key) but no longer requires one locally/on JitPack.
+
 ## [0.2.0] - 2026-09-03
 
 ### Fixed
