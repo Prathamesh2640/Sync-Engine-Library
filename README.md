@@ -1,6 +1,6 @@
 # SyncEngine
 
-[![Maven Central](https://img.shields.io/maven-central/v/io.github.prathamesh2640/sync-core.svg?label=Maven%20Central)](https://central.sonatype.com/namespace/io.github.prathamesh2640)
+[![Maven Central](https://img.shields.io/maven-central/v/io.github.prathamesh2640/sync-core.svg?label=Maven%20Central)](https://central.sonatype.com/artifact/io.github.prathamesh2640/sync-core/0.2.0)
 [![CI](https://github.com/Prathamesh2640/Sync-Engine-Library/actions/workflows/ci.yml/badge.svg)](https://github.com/Prathamesh2640/Sync-Engine-Library/actions/workflows/ci.yml)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
 [![API docs](https://img.shields.io/badge/docs-Dokka-blue.svg)](https://prathamesh2640.github.io/Sync-Engine-Library/)
@@ -70,11 +70,11 @@ Ships as standard Android AARs — nothing about your host app's toolchain matte
 
 ```kotlin
 dependencies {
-    implementation("io.github.prathamesh2640:sync-core:0.1.1")               // required
-    implementation("io.github.prathamesh2640:sync-storage-room:0.1.1")       // optional
-    implementation("io.github.prathamesh2640:sync-network-retrofit:0.1.1")   // optional
-    implementation("io.github.prathamesh2640:sync-workmanager:0.1.1")        // optional
-    debugImplementation("io.github.prathamesh2640:sync-ui-dashboard:0.1.1")  // debug only — never ship in release
+    implementation("io.github.prathamesh2640:sync-core:0.2.0")               // required
+    implementation("io.github.prathamesh2640:sync-storage-room:0.2.0")       // optional
+    implementation("io.github.prathamesh2640:sync-network-retrofit:0.2.0")   // optional
+    implementation("io.github.prathamesh2640:sync-workmanager:0.2.0")        // optional
+    debugImplementation("io.github.prathamesh2640:sync-ui-dashboard:0.2.0")  // debug only — never ship in release
 }
 ```
 
