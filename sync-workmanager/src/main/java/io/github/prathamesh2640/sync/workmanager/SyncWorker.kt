@@ -3,6 +3,7 @@ package io.github.prathamesh2640.sync.workmanager
 import android.content.Context
 import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
+import io.github.prathamesh2640.sync.core.result.SyncError
 import io.github.prathamesh2640.sync.core.result.SyncResult
 
 /**
@@ -16,7 +17,11 @@ import io.github.prathamesh2640.sync.core.result.SyncResult
  *
  * - [SyncResult.Success] → [Result.success]
  * - [SyncResult.PartialFailure] / [SyncResult.Failure] → [Result.retry] (WorkManager
- *   applies the request's exponential backoff)
+ *   applies the request's exponential backoff) — **except** when every error present
+ *   is [SyncError.ConflictUnresolvable]: an unresolvable conflict is a terminal state
+ *   (the entity sits in `CONFLICT` until the host resolves it) that retrying cannot
+ *   fix, so that case maps to [Result.success] instead of retrying forever on
+ *   backoff. The conflict is still visible via `SyncEngine.stats`/`syncState`.
  *
  * If no engine is registered for the run's key (e.g. the app process was
  * recreated without re-registering), it returns [Result.failure] rather than
@@ -34,10 +39,12 @@ internal class SyncWorker(
     override suspend fun doWork(): Result {
         val key = inputData.getString(KEY_ENGINE_KEY) ?: DEFAULT_ENGINE_KEY
         val engine = SyncEngineRegistry.acquire(key) ?: return Result.failure()
-        return when (engine.triggerSync()) {
+        return when (val result = engine.triggerSync()) {
             is SyncResult.Success -> Result.success()
-            is SyncResult.PartialFailure -> Result.retry()
-            is SyncResult.Failure -> Result.retry()
+            is SyncResult.Failure ->
+                if (result.error is SyncError.ConflictUnresolvable) Result.success() else Result.retry()
+            is SyncResult.PartialFailure ->
+                if (result.errors.all { it is SyncError.ConflictUnresolvable }) Result.success() else Result.retry()
         }
     }
 

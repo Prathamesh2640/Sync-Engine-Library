@@ -23,10 +23,16 @@ import io.github.prathamesh2640.sync.core.model.SyncableEntity
  * `:sync-storage-room`; tests can supply a trivial in-memory fake.
  *
  * ## Contract
- * - **Never throw across the boundary.** Wrap storage failures; the engine treats
- *   a store call the same way it treats an adapter — a thrown exception must not
- *   crash the host app. Implementations should surface I/O problems by returning
- *   empty/no-op results, not by propagating raw `SQLiteException`s.
+ * - **Must not throw for ordinary outcomes.** An absent row, an empty result, "no
+ *   metadata yet" — these are not exceptional and must come back as an empty/null
+ *   result, never a thrown exception. A genuine storage/IO failure (a corrupt
+ *   database, a locked file) is a different matter: such an exception may
+ *   propagate, and the engine — same as it does for a misbehaving adapter — catches
+ *   it at the [io.github.prathamesh2640.sync.core.engine.SyncEngine.triggerSync]
+ *   boundary and converts it to [io.github.prathamesh2640.sync.core.result.SyncError.StorageError]
+ *   (SEC-12) rather than crashing the host app. `RoomSyncAdapter` follows exactly
+ *   this shape: it lets `SQLiteException` escape rather than silently returning an
+ *   empty list that would look identical to "nothing pending."
  * - **Suspending, dispatcher-agnostic.** Every method must be safe to call from
  *   any dispatcher and should switch to its own I/O dispatcher internally.
  * - **No metadata row means "not enqueued".** A host row with no [SyncMetadata]
@@ -43,7 +49,12 @@ public interface LocalSyncStore<T : SyncableEntity> {
      *
      * The engine seeds its in-flight batch from this list, so returning stale or
      * duplicate ids is harmless (the queue coalesces by [SyncableEntity.id]), but
-     * returning entities in a state other than `PENDING` is a contract violation.
+     * returning entities in a state other than `PENDING` is a contract violation
+     * — **including a tombstoned entity** ([SyncMetadata.isDeleted] `true`),
+     * even though [markDeleted] leaves its `syncState` as `PENDING`. A deletion
+     * is confirmed exclusively through [getTombstones]; the engine's push adapter
+     * is documented as never seeing a tombstone as content, and that guarantee
+     * depends on this method excluding them.
      *
      * **[limit] is not advisory.** The engine passes its
      * [io.github.prathamesh2640.sync.core.engine.SyncEngineConfig.batchSize] — the
@@ -107,6 +118,23 @@ public interface LocalSyncStore<T : SyncableEntity> {
     public suspend fun getTombstones(): List<T>
 
     /**
+     * Up to [limit] tombstoned entities — the same set as [getTombstones], but
+     * bounded the way [getPending] bounds the pending backlog: a host that has
+     * accumulated a large number of offline deletions should not load all of
+     * them into memory just to confirm one batch.
+     *
+     * Default implementation delegates to [getTombstones] and truncates in
+     * memory, so an implementation that doesn't override this gets correct but
+     * unbounded-load behavior — override when the backing store can express
+     * `LIMIT` directly (see `RoomSyncAdapter`).
+     *
+     * @param limit the maximum number of entities to return. Values `<= 0`
+     *   return nothing.
+     * @return at most [limit] tombstoned entities; never `null`.
+     */
+    public suspend fun getTombstones(limit: Int): List<T> = getTombstones().take(limit.coerceAtLeast(0))
+
+    /**
      * Insert or replace [entities] in local storage.
      *
      * This is the write path the engine uses when applying **pulled** remote
@@ -126,11 +154,13 @@ public interface LocalSyncStore<T : SyncableEntity> {
      * Persist a new [SyncState] for the entity identified by [id] — **an upsert**:
      * it creates the [SyncMetadata] row if [id] has none yet.
      *
-     * This is both the write-back path the engine uses after a run (`SYNCED` on
-     * success, `FAILED` on a failed push) **and** the call a host makes after
-     * every local insert/update to enqueue that entity for sync (typically
-     * `markSyncState(id, SyncState.PENDING)`) — a row's own default state no
-     * longer does this implicitly, since sync state does not live on the entity.
+     * This is both a write-back path the engine uses after a run (`FAILED` on a
+     * failed push or delete confirmation, `CONFLICT` on an unresolvable pull
+     * conflict — see [markSyncedIfUnchanged] for the successful-push case)
+     * **and** the call a host makes after every local insert/update to enqueue
+     * that entity for sync (typically `markSyncState(id, SyncState.PENDING)`) —
+     * a row's own default state no longer does this implicitly, since sync
+     * state does not live on the entity.
      *
      * @param id the [SyncableEntity.id] of the row to update.
      * @param state the state to persist.
@@ -155,6 +185,59 @@ public interface LocalSyncStore<T : SyncableEntity> {
     public suspend fun enqueue(entity: T) {
         upsert(listOf(entity))
         markSyncState(entity.id, SyncState.PENDING)
+    }
+
+    /**
+     * Mark the entity identified by [id] [SyncState.SYNCED] — but only if [lastModified]
+     * still matches the row's current value.
+     *
+     * The engine calls this instead of [markSyncState] after a successful push. Between
+     * the push starting and this write-back landing, a host can edit the same entity —
+     * which re-marks it `PENDING` with a newer `lastModified` — and an unconditional
+     * `SYNCED` write would silently clobber that edit, permanently losing it (it would
+     * never be pushed again). Comparing [lastModified] closes that window: a store
+     * backed by real storage (e.g. `RoomSyncAdapter`) can express this as one guarded
+     * `UPDATE ... WHERE lastModified = ?` with no read-then-write gap.
+     *
+     * A default method that ignores the guard and always calls
+     * `markSyncState(id, SyncState.SYNCED)`, so existing implementations keep today's
+     * behavior until they override it with a real check.
+     *
+     * @param id the [SyncableEntity.id] of the row that was just pushed.
+     * @param lastModified the [SyncableEntity.lastModified] value that was actually
+     *   pushed — the write-back applies only if the row hasn't changed since.
+     */
+    public suspend fun markSyncedIfUnchanged(id: String, lastModified: Long) {
+        markSyncState(id, SyncState.SYNCED)
+    }
+
+    /**
+     * The epoch-ms watermark of the last successful pull, persisted across process
+     * restarts.
+     *
+     * The engine seeds its in-memory watermark from this once per instance and calls
+     * [setWatermark] after every pull that advances it. A default method returning `0L`,
+     * so an implementation that doesn't override it behaves exactly as before this was
+     * added: every fresh process re-pulls everything from the start. That's always
+     * correct — [upsert] is idempotent on [SyncableEntity.id] — just not bandwidth-free,
+     * which is what overriding this (e.g. `RoomSyncAdapter`'s optional `watermarkTable`)
+     * buys back.
+     *
+     * @return the persisted watermark, or `0L` if none has been persisted (or this
+     *   method isn't overridden).
+     */
+    public suspend fun getWatermark(): Long = 0L
+
+    /**
+     * Persist [value] as the new pull watermark. See [getWatermark].
+     *
+     * A default no-op, so an implementation that doesn't override this pair simply
+     * never persists the watermark — the safe, pre-existing behavior.
+     *
+     * @param value the new watermark to persist.
+     */
+    public suspend fun setWatermark(value: Long) {
+        // No-op default: see getWatermark.
     }
 
     /**

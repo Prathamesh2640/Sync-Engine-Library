@@ -55,6 +55,20 @@ import kotlinx.coroutines.withContext
  * unlike [tableName], this is a new table the library defines the shape of, so
  * there is no existing host naming convention to accommodate.
  *
+ * ### The watermark table (optional)
+ * Pass [watermarkTable] to persist the pull watermark across process restarts
+ * (otherwise every fresh process re-pulls everything from the start — safe, since
+ * [upsert] is idempotent, just not bandwidth-free). When supplied it must exist
+ * with exactly this shape (create it in the same `Migration` as [metadataTable]):
+ * ```sql
+ * CREATE TABLE notes_sync_watermark (
+ *     id INTEGER NOT NULL PRIMARY KEY,
+ *     value INTEGER NOT NULL
+ * )
+ * ```
+ * It always holds exactly one row (`id = 0`). Leaving [watermarkTable] `null` (the
+ * default) requires no schema change at all — existing hosts are unaffected.
+ *
  * ### Column-name contract (host entity table only)
  * Queries reference the Room column names for [SyncableEntity.id] and
  * [SyncableEntity.lastModified] — `id`/`lastModified` by default. If your entity
@@ -101,6 +115,11 @@ import kotlinx.coroutines.withContext
  *   deterministic tests. Defaults to [System.currentTimeMillis].
  * @param ioDispatcher dispatcher the blocking SQLite calls run on; injectable for
  *   tests. Defaults to [Dispatchers.IO].
+ * @param watermarkTable optional pull-watermark table name (see "The watermark
+ *   table" below). `null` (the default) means this store does not persist the
+ *   watermark — [getWatermark]/[setWatermark] behave exactly as
+ *   [io.github.prathamesh2640.sync.core.store.LocalSyncStore]'s no-op defaults,
+ *   with zero schema requirement. Validated as a SQL identifier when supplied.
  */
 public class RoomSyncAdapter<T : SyncableEntity> @JvmOverloads constructor(
     private val database: RoomDatabase,
@@ -112,12 +131,14 @@ public class RoomSyncAdapter<T : SyncableEntity> @JvmOverloads constructor(
     modifiedColumn: String = "lastModified",
     private val clock: () -> Long = System::currentTimeMillis,
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
+    watermarkTable: String? = null,
 ) : LocalSyncStore<T> {
 
     private val table: String = validateIdentifier(tableName)
     private val metaTable: String = validateIdentifier(metadataTable)
     private val colId: String = validateIdentifier(idColumn)
     private val colModified: String = validateIdentifier(modifiedColumn)
+    private val watermarkTableName: String? = watermarkTable?.let { validateIdentifier(it) }
 
     override suspend fun getPending(limit: Int): List<T> {
         if (limit <= 0) return emptyList()
@@ -128,7 +149,7 @@ public class RoomSyncAdapter<T : SyncableEntity> @JvmOverloads constructor(
             rawQuery(
                 SimpleSQLiteQuery(
                     "SELECT t.* FROM `$table` t JOIN `$metaTable` m ON t.$colId = m.id " +
-                        "WHERE m.syncState = ? ORDER BY t.$colModified ASC LIMIT ?",
+                        "WHERE m.syncState = ? AND m.isDeleted = 0 ORDER BY t.$colModified ASC LIMIT ?",
                     arrayOf<Any?>(SyncState.PENDING.name, limit),
                 ),
             )
@@ -160,10 +181,11 @@ public class RoomSyncAdapter<T : SyncableEntity> @JvmOverloads constructor(
                     ),
                 ).use { cursor ->
                     while (cursor.moveToNext()) {
-                        result[cursor.getString(0)] = SyncMetadata(
-                            syncState = SyncState.valueOf(cursor.getString(1)),
-                            isDeleted = cursor.getInt(2) != 0,
-                        )
+                        // A syncState string matching no known SyncState (a downgrade, a
+                        // hand-edited DB) must not throw out of a store method — skip the
+                        // row instead (LocalSyncStore's "must not throw" contract).
+                        val state = SyncState.entries.firstOrNull { it.name == cursor.getString(1) } ?: continue
+                        result[cursor.getString(0)] = SyncMetadata(syncState = state, isDeleted = cursor.getInt(2) != 0)
                     }
                 }
             }
@@ -179,7 +201,9 @@ public class RoomSyncAdapter<T : SyncableEntity> @JvmOverloads constructor(
             SimpleSQLiteQuery("SELECT syncState, COUNT(*) FROM `$metaTable` GROUP BY syncState"),
         ).use { cursor ->
             while (cursor.moveToNext()) {
-                when (SyncState.valueOf(cursor.getString(0))) {
+                // See getMetadataByIds: an unrecognized syncState string is skipped, not thrown.
+                val state = SyncState.entries.firstOrNull { it.name == cursor.getString(0) } ?: continue
+                when (state) {
                     SyncState.PENDING -> pending = cursor.getInt(1)
                     SyncState.FAILED -> failed = cursor.getInt(1)
                     SyncState.CONFLICT -> conflict = cursor.getInt(1)
@@ -196,9 +220,39 @@ public class RoomSyncAdapter<T : SyncableEntity> @JvmOverloads constructor(
         )
     }
 
+    override suspend fun getTombstones(limit: Int): List<T> {
+        if (limit <= 0) return emptyList()
+        return withContext(ioDispatcher) {
+            rawQuery(
+                SimpleSQLiteQuery(
+                    "SELECT t.* FROM `$table` t JOIN `$metaTable` m ON t.$colId = m.id " +
+                        "WHERE m.isDeleted = 1 ORDER BY t.$colModified ASC LIMIT ?",
+                    arrayOf<Any?>(limit),
+                ),
+            )
+        }
+    }
+
     override suspend fun upsert(entities: List<T>) {
         if (entities.isEmpty()) return
         withContext(ioDispatcher) { upsert.invoke(entities) }
+    }
+
+    // Overrides the LocalSyncStore default (upsert then markSyncState as two separate
+    // calls) with one transaction, closing the window where a reader (e.g. the pull
+    // phase's getMetadataByIds) could see the row upserted but still metadata-less/stale
+    // between the two statements.
+    override suspend fun enqueue(entity: T) {
+        database.withTransaction {
+            upsert.invoke(listOf(entity))
+            val db = database.openHelper.writableDatabase
+            db.execSQL(
+                "INSERT OR IGNORE INTO `$metaTable` (id, syncState, isDeleted) VALUES (?, ?, 0)",
+                arrayOf<Any?>(entity.id, SyncState.PENDING.name),
+            )
+            db.execSQL("UPDATE `$metaTable` SET syncState = ? WHERE id = ?", arrayOf<Any?>(SyncState.PENDING.name, entity.id))
+        }
+        database.invalidationTracker.refreshVersionsAsync()
     }
 
     // One transaction per call, so a run's per-entity markSyncState writes open N
@@ -217,6 +271,22 @@ public class RoomSyncAdapter<T : SyncableEntity> @JvmOverloads constructor(
                 arrayOf<Any?>(id, state.name),
             )
             db.execSQL("UPDATE `$metaTable` SET syncState = ? WHERE id = ?", arrayOf<Any?>(state.name, id))
+        }
+        database.invalidationTracker.refreshVersionsAsync()
+    }
+
+    // Guarded write-back: only stamps SYNCED if the host row's lastModified still
+    // matches what was actually pushed — closing the window where a concurrent edit
+    // (which bumps lastModified and re-marks PENDING) would otherwise get silently
+    // overwritten by a push that started before the edit landed. One statement, no
+    // read-then-write gap.
+    override suspend fun markSyncedIfUnchanged(id: String, lastModified: Long) {
+        database.withTransaction {
+            database.openHelper.writableDatabase.execSQL(
+                "UPDATE `$metaTable` SET syncState = ? WHERE id = ? AND EXISTS " +
+                    "(SELECT 1 FROM `$table` t WHERE t.$colId = ? AND t.$colModified = ?)",
+                arrayOf<Any?>(SyncState.SYNCED.name, id, id, lastModified),
+            )
         }
         database.invalidationTracker.refreshVersionsAsync()
     }
@@ -268,6 +338,31 @@ public class RoomSyncAdapter<T : SyncableEntity> @JvmOverloads constructor(
         }
         if (purged > 0) database.invalidationTracker.refreshVersionsAsync()
         return purged
+    }
+
+    // Both no-op (falling back to the LocalSyncStore defaults: 0L / does nothing) when
+    // watermarkTable wasn't supplied — a store built without it never touches a table
+    // that may not exist.
+    override suspend fun getWatermark(): Long {
+        val watermarkTable = watermarkTableName ?: return 0L
+        return withContext(ioDispatcher) {
+            var value = 0L
+            database.openHelper.readableDatabase.query(
+                SimpleSQLiteQuery("SELECT value FROM `$watermarkTable` WHERE id = 0"),
+            ).use { cursor -> if (cursor.moveToFirst()) value = cursor.getLong(0) }
+            value
+        }
+    }
+
+    override suspend fun setWatermark(value: Long) {
+        val watermarkTable = watermarkTableName ?: return
+        database.withTransaction {
+            database.openHelper.writableDatabase.execSQL(
+                "INSERT OR REPLACE INTO `$watermarkTable` (id, value) VALUES (0, ?)",
+                arrayOf<Any?>(value),
+            )
+        }
+        database.invalidationTracker.refreshVersionsAsync()
     }
 
     /**

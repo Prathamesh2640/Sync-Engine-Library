@@ -58,9 +58,12 @@ import java.util.concurrent.atomic.AtomicLong
  *    and retried on subsequent runs up to [SyncEngineConfig.maxRetries]
  *    consecutive failures, after which it is left `FAILED` for good rather than
  *    retried forever.
- * 3. **Confirms deletions** (storage-backed engines only). Tombstones that pushed
- *    successfully are hard-deleted locally once [SyncNetworkAdapter.delete]
- *    confirms them on the remote.
+ * 3. **Confirms deletions** (storage-backed engines only). A tombstone is never
+ *    pushed as content — it is confirmed directly against
+ *    [SyncNetworkAdapter.delete] and hard-deleted locally once the remote
+ *    confirms it; a failed confirmation is left `FAILED` (not retried as content)
+ *    so it can still be reclaimed by the purge step below if it never existed
+ *    server-side in the first place.
  * 4. **Purges** expired tombstones once per run (SEC-10 / GDPR).
  *
  * Without a [store] the engine is push-only and framework-free exactly as before —
@@ -136,11 +139,16 @@ internal class SyncEngineImpl<T : SyncableEntity>(
     private val closed = AtomicBoolean(false)
 
     /**
-     * Epoch-ms watermark of the last successful pull. In-memory by design: after
-     * process death it resets to 0, so the next run re-pulls everything — safe
-     * because [LocalSyncStore.upsert] is idempotent (keyed on id).
+     * Epoch-ms watermark of the last successful pull. Seeded once from
+     * [LocalSyncStore.getWatermark] on the first [pullPhase] (see [watermarkLoaded]);
+     * without a store, or with a store that doesn't override [LocalSyncStore.getWatermark],
+     * it starts at 0 and stays in-memory only, so a fresh process re-pulls everything —
+     * safe either way because [LocalSyncStore.upsert] is idempotent (keyed on id).
      */
     private val pullSince = AtomicLong(0L)
+
+    /** Guards the one-time [LocalSyncStore.getWatermark] seed in [pullPhase]. */
+    private val watermarkLoaded = AtomicBoolean(false)
 
     private val _stats = MutableStateFlow(SyncStats.INITIAL)
 
@@ -293,7 +301,11 @@ internal class SyncEngineImpl<T : SyncableEntity>(
         store?.let { s ->
             val failedIds = failures.mapTo(HashSet(failures.size)) { it.first.id }
             for ((entity, _) in outcomes) {
-                s.markSyncState(entity.id, if (entity.id in failedIds) SyncState.FAILED else SyncState.SYNCED)
+                if (entity.id in failedIds) {
+                    s.markSyncState(entity.id, SyncState.FAILED)
+                } else {
+                    s.markSyncedIfUnchanged(entity.id, entity.lastModified)
+                }
             }
         }
 
@@ -337,6 +349,10 @@ internal class SyncEngineImpl<T : SyncableEntity>(
     private suspend fun pullPhase(): PullOutcome {
         val store = this.store ?: return PullOutcome.EMPTY
 
+        if (watermarkLoaded.compareAndSet(false, true)) {
+            pullSince.set(store.getWatermark())
+        }
+
         val remote = when (val result = pullRemote(pullSince.get())) {
             is NetworkResult.Success -> result.data
             else -> return PullOutcome(downloadedCount = 0, conflictCount = 0, errors = listOf(result.toSyncError()))
@@ -353,6 +369,13 @@ internal class SyncEngineImpl<T : SyncableEntity>(
         // below this ceiling is what guarantees the stuck entity — and anything
         // else at/after it that a later batch might reorder in — is requested
         // again on the next pull instead of being silently skipped forever.
+        // ponytail: this guarantee has one unavoidable hole — a stuck entity at
+        // lastModified <= 0 would need a negative `since` to stay strictly below
+        // it, and `since` is floored at 0 below (never sent negative to the
+        // adapter). Real event timestamps are never <= 0, so this only bites
+        // contrived/test data; if a host ever legitimately uses lastModified <= 0
+        // (e.g. a logical clock starting at 0), it needs a different watermark
+        // scheme.
         var watermarkCeiling = Long.MAX_VALUE
 
         val ids = remote.map { it.id }
@@ -380,7 +403,7 @@ internal class SyncEngineImpl<T : SyncableEntity>(
             }
         }
         if (watermarkCeiling != Long.MAX_VALUE) {
-            maxSeen = minOf(maxSeen, watermarkCeiling - 1)
+            maxSeen = minOf(maxSeen, watermarkCeiling - 1).coerceAtLeast(0)
         }
 
         if (downloads.isNotEmpty()) {
@@ -393,6 +416,7 @@ internal class SyncEngineImpl<T : SyncableEntity>(
         }
 
         pullSince.set(maxSeen)
+        store.setWatermark(maxSeen)
         return PullOutcome(downloadedCount = downloads.size, conflictCount = winners.size, errors = conflictErrors)
     }
 
@@ -461,16 +485,17 @@ internal class SyncEngineImpl<T : SyncableEntity>(
     // --- Delete-confirmation phase -------------------------------------------
 
     /**
-     * Confirm and finalise deletions: tombstones that pushed successfully (now
-     * [SyncState.SYNCED]) are hard-deleted locally once the remote confirms them.
+     * Confirm and finalise deletions. A tombstone is never pushed as content — it is
+     * confirmed directly against [SyncNetworkAdapter.delete] and hard-deleted locally
+     * once the remote confirms it, capped at [SyncEngineConfig.batchSize] per run so a
+     * large offline-deletion backlog doesn't load every tombstone into memory and issue
+     * one oversized request at once (remaining tombstones drain on later runs).
      */
     private suspend fun confirmDeletions(store: LocalSyncStore<T>) {
-        val tombstones = store.getTombstones()
-        val metas = store.getMetadataByIds(tombstones.map { it.id })
-        val confirmable = tombstones.filter { metas[it.id]?.syncState == SyncState.SYNCED }
-        if (confirmable.isEmpty()) return
+        val tombstones = store.getTombstones(config.batchSize)
+        if (tombstones.isEmpty()) return
 
-        val ids = confirmable.map { it.id }
+        val ids = tombstones.map { it.id }
         val result = try {
             adapter.delete(ids)
         } catch (cancellation: CancellationException) {
@@ -478,9 +503,15 @@ internal class SyncEngineImpl<T : SyncableEntity>(
         } catch (throwable: Throwable) {
             NetworkResult.UnknownError(throwable)
         }
-        // Only drop local rows the server actually confirmed. A failed confirmation
-        // leaves the tombstones in place to retry next run — deletions are never lost.
-        if (result is NetworkResult.Success) store.hardDelete(ids)
+        if (result is NetworkResult.Success) {
+            // The server confirmed the deletion — safe to drop the local rows.
+            store.hardDelete(ids)
+        } else {
+            // Leave a FAILED marker (rather than nothing) so a tombstone that never
+            // existed server-side — created and deleted entirely offline — can still
+            // be reclaimed by purgeExpiredTombstones, which requires FAILED.
+            for (id in ids) store.markSyncState(id, SyncState.FAILED)
+        }
     }
 
     // --- Result & state -------------------------------------------------------

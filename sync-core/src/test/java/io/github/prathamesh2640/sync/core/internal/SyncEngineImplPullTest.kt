@@ -14,6 +14,7 @@ import io.github.prathamesh2640.sync.core.testing.Note
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -46,9 +47,11 @@ class SyncEngineImplPullTest {
         }
 
         val getMetadataByIdsCalls = mutableListOf<List<String>>()
+        var watermark: Long = 0L
 
         override suspend fun getPending(limit: Int) =
-            rows.values.filter { metadata[it.id]?.syncState == SyncState.PENDING }.take(limit)
+            rows.values.filter { metadata[it.id]?.syncState == SyncState.PENDING && metadata[it.id]?.isDeleted != true }
+                .take(limit)
         override suspend fun getByIds(ids: List<String>) = ids.mapNotNull { id -> rows[id]?.let { id to it } }.toMap()
         override suspend fun getMetadataByIds(ids: List<String>): Map<String, SyncMetadata> {
             getMetadataByIdsCalls += ids
@@ -69,21 +72,28 @@ class SyncEngineImplPullTest {
         }
         override suspend fun hardDelete(ids: List<String>) = ids.forEach { rows.remove(it); metadata.remove(it) }
         override suspend fun purgeExpiredTombstones(retentionDays: Int) = 0
+        override suspend fun getWatermark(): Long = watermark
+        override suspend fun setWatermark(value: Long) { watermark = value }
     }
 
     /** Adapter whose pull payload and delete recording are configurable. */
     private class FakeAdapter(
         private val pullData: List<Note> = emptyList(),
         private val pushOk: Boolean = true,
+        private val deleteOk: Boolean = true,
     ) : SyncNetworkAdapter<Note> {
         val deleted = mutableListOf<String>()
+        val pushedIds = mutableListOf<String>()
 
-        override suspend fun push(payload: List<Note>): NetworkResult<Unit> =
-            if (pushOk) NetworkResult.Success(Unit) else NetworkResult.HttpError(500, "boom")
+        override suspend fun push(payload: List<Note>): NetworkResult<Unit> {
+            pushedIds += payload.map { it.id }
+            return if (pushOk) NetworkResult.Success(Unit) else NetworkResult.HttpError(500, "boom")
+        }
 
         override suspend fun pull(since: Long): NetworkResult<List<Note>> = NetworkResult.Success(pullData)
 
         override suspend fun delete(ids: List<String>): NetworkResult<Unit> {
+            if (!deleteOk) return NetworkResult.HttpError(500, "boom")
             deleted += ids
             return NetworkResult.Success(Unit)
         }
@@ -154,15 +164,99 @@ class SyncEngineImplPullTest {
     }
 
     @Test
-    fun `a successfully-pushed tombstone is confirmed and hard-deleted`() = runTest {
+    fun `a tombstone is confirmed and hard-deleted without ever being pushed as content`() = runTest {
         val store = FakeStore(listOf(seeded("d", state = SyncState.PENDING, deleted = true)))
         val adapter = FakeAdapter()
         val e = engine(store, adapter, scheduler = testScheduler)
 
         e.triggerSync()
 
+        assertTrue("tombstone must never be pushed as content", adapter.pushedIds.isEmpty())
         assertEquals(listOf("d"), adapter.deleted)
         assertNull("tombstone hard-deleted after remote confirmation", store.rows["d"])
+    }
+
+    @Test
+    fun `a failed delete confirmation leaves the tombstone FAILED and the row intact`() = runTest {
+        val store = FakeStore(listOf(seeded("d", state = SyncState.PENDING, deleted = true)))
+        val adapter = FakeAdapter(deleteOk = false)
+        val e = engine(store, adapter, scheduler = testScheduler)
+
+        e.triggerSync()
+
+        assertTrue(adapter.deleted.isEmpty())
+        assertEquals(SyncState.FAILED, store.metadata["d"]?.syncState)
+        assertNotNull(store.rows["d"])
+    }
+
+    @Test
+    fun `confirmDeletions caps at batchSize, draining the rest over later runs`() = runTest {
+        val store = FakeStore((0 until 5).map { seeded("d$it", state = SyncState.PENDING, deleted = true) })
+        val adapter = FakeAdapter()
+        val e = SyncEngineImpl(
+            adapter,
+            SyncEngineConfig { batchSize = 2 },
+            UnconfinedTestDispatcher(testScheduler),
+            store = store,
+        )
+
+        e.triggerSync()
+        assertEquals("first run confirms only batchSize tombstones", 2, adapter.deleted.size)
+
+        e.triggerSync()
+        assertEquals("second run drains the rest", 4, adapter.deleted.size)
+    }
+
+    @Test
+    fun `an unresolvable conflict at lastModified 0 does not push the watermark negative`() = runTest {
+        val store = FakeStore(listOf(seeded("stuck", state = SyncState.PENDING, title = "local")))
+        val stuckRemote = note("stuck", title = "remote", lastModified = 0L)
+        val sinceCalls = mutableListOf<Long>()
+        var pullCount = 0
+        val adapter = object : SyncNetworkAdapter<Note> {
+            override suspend fun push(payload: List<Note>) = NetworkResult.Success(Unit)
+            override suspend fun pull(since: Long): NetworkResult<List<Note>> {
+                sinceCalls += since
+                pullCount++
+                return NetworkResult.Success(if (pullCount == 1) listOf(stuckRemote) else emptyList())
+            }
+            override suspend fun delete(ids: List<String>) = NetworkResult.Success(Unit)
+        }
+        val e = SyncEngineImpl(adapter, SyncEngineConfig {}, UnconfinedTestDispatcher(testScheduler), store = store, resolver = null)
+
+        e.triggerSync()
+        e.triggerSync()
+
+        assertEquals("watermark floors at 0, never negative", listOf(0L, 0L), sinceCalls)
+    }
+
+    @Test
+    fun `getWatermark seeds the first pull and setWatermark persists the advance`() = runTest {
+        val store = FakeStore(listOf(seeded("a"))).apply { watermark = 500L }
+        val remote = note("new", lastModified = 600L)
+        val sinceCalls = mutableListOf<Long>()
+        var pullCount = 0
+        val adapter = object : SyncNetworkAdapter<Note> {
+            override suspend fun push(payload: List<Note>) = NetworkResult.Success(Unit)
+            override suspend fun pull(since: Long): NetworkResult<List<Note>> {
+                sinceCalls += since
+                pullCount++
+                return NetworkResult.Success(if (pullCount == 1) listOf(remote) else emptyList())
+            }
+            override suspend fun delete(ids: List<String>) = NetworkResult.Success(Unit)
+        }
+        val e = SyncEngineImpl(
+            adapter,
+            SyncEngineConfig {},
+            UnconfinedTestDispatcher(testScheduler),
+            store = store,
+            clock = { 600L },
+        )
+
+        e.triggerSync()
+
+        assertEquals("first pull seeded from the persisted watermark, not 0", listOf(500L), sinceCalls)
+        assertEquals("advance persisted back to the store", 600L, store.watermark)
     }
 
     @Test
@@ -223,7 +317,7 @@ class SyncEngineImplPullTest {
     }
 
     @Test
-    fun `confirmDeletions looks up tombstone metadata in one batch call`() = runTest {
+    fun `confirmDeletions never looks up metadata — a tombstone is directly confirmable`() = runTest {
         val store = FakeStore(
             listOf(
                 seeded("d1", state = SyncState.PENDING, deleted = true),
@@ -231,12 +325,13 @@ class SyncEngineImplPullTest {
                 seeded("d3", state = SyncState.PENDING, deleted = true),
             ),
         )
-        val e = engine(store, FakeAdapter(), scheduler = testScheduler)
+        val adapter = FakeAdapter()
+        val e = engine(store, adapter, scheduler = testScheduler)
 
         e.triggerSync()
 
-        assertEquals("exactly one batch call", 1, store.getMetadataByIdsCalls.size)
-        assertEquals(setOf("d1", "d2", "d3"), store.getMetadataByIdsCalls.single().toSet())
+        assertTrue("no metadata lookup needed to confirm a tombstone", store.getMetadataByIdsCalls.isEmpty())
+        assertEquals(setOf("d1", "d2", "d3"), adapter.deleted.toSet())
     }
 
     @Test

@@ -31,8 +31,9 @@ public interface SyncNetworkAdapter<T : SyncableEntity> {
      * item's failure is attributed to that item alone. The parameter is a list so
      * hosts can also drive the adapter with real batches directly.
      *
-     * @param payload the entities to upload. May include tombstones
-     *   ([SyncableEntity.isDeleted] = `true`) that represent pending deletions.
+     * @param payload the entities to upload. Never includes a tombstone — a
+     *   pending deletion is confirmed exclusively through [delete], so [push]
+     *   only ever sees live content.
      * @return [NetworkResult.Success] with [Unit] when the server accepted the
      *   batch, otherwise the matching error branch.
      */

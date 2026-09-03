@@ -7,6 +7,69 @@ and this project adheres to [Semantic Versioning 2.0.0](https://semver.org/spec/
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-09-03
+
+### Fixed
+- A tombstone is no longer pushed to `SyncNetworkAdapter.push` as a content upsert before
+  its deletion is confirmed. Previously `RoomSyncAdapter.getPending()` had no `isDeleted`
+  filter, so a deleted entity's full content was sent to `push`, which could resurrect the
+  row on the server for any other device pulling in that window before the tombstone was
+  confirmed. **Behavior change for hosts:** `push` now never receives a deleted entity —
+  deletions are confirmed exclusively through `delete(ids)`. A tombstone whose confirmation
+  fails is now marked `FAILED` (previously left untouched), so `purgeExpiredTombstones` can
+  eventually reclaim a deletion that never existed server-side (created and deleted entirely
+  offline).
+- `RoomSyncAdapter.getMetadataByIds`/`counts()` no longer throw `IllegalArgumentException`
+  on a metadata row whose `syncState` string doesn't match a known `SyncState` (a downgrade,
+  a hand-edited database) — the row is skipped instead, honoring `LocalSyncStore`'s
+  "must not throw" contract.
+- `SyncWorker` no longer retries forever on an unresolvable conflict. A `SyncResult.Failure`/
+  `PartialFailure` whose error(s) are entirely `SyncError.ConflictUnresolvable` now maps to
+  `Result.success()` — nothing WorkManager's retry can fix; the conflict remains visible via
+  `SyncEngine.stats`/`syncState` until the host resolves it.
+- The pull watermark can no longer go negative when an unresolvable-conflict or skipped
+  entity's `lastModified` is `0` (or less than the running watermark) — it now floors at `0`.
+  Known remaining gap: an entity stuck at exactly `lastModified <= 0` sits at the boundary of
+  `pull(since)`'s "strictly newer than `since`" contract and won't be re-delivered by a
+  `since = 0` pull; real event timestamps are never `<= 0`, so this only affects contrived data.
+- `SyncEngineImpl.confirmDeletions` no longer loads every tombstone into memory before
+  capping at `batchSize` — it now calls the new `LocalSyncStore.getTombstones(limit)` (see
+  Added below), the same bounded-query pattern `getPending(limit)` already used.
+
+### Added
+- `LocalSyncStore.markSyncedIfUnchanged(id, lastModified)` — a default method the engine now
+  calls instead of `markSyncState(id, SYNCED)` after a successful push. Closes a data-loss
+  window: if a host edits an entity while its push is in flight, the previous unconditional
+  write-back could stamp `SYNCED` over that edit, silently losing it (it would never sync
+  again). The default body is unconditional (same as before) for source compatibility;
+  `RoomSyncAdapter` overrides it as one guarded `UPDATE ... WHERE lastModified = ?`.
+- `RoomSyncAdapter.enqueue(entity)` override — wraps the upsert and metadata write in one
+  transaction, closing a race where the pull phase could observe the row updated but its
+  metadata still stale between the two previously-separate statements.
+- `SyncEngineImpl.confirmDeletions` now caps at `SyncEngineConfig.batchSize` per run, same as
+  the push phase — a large offline-deletion backlog no longer issues one unbounded `delete`
+  request; remaining tombstones drain over subsequent runs.
+- `LocalSyncStore.getWatermark()`/`setWatermark(value)` — an opt-in seam for persisting the
+  pull watermark across process restarts (previously in-memory only, so every fresh process
+  re-pulled everything from the start — safe, since `upsert` is idempotent, just not
+  bandwidth-free). Default no-op/`0L`, so existing implementations are unaffected unless they
+  opt in. `RoomSyncAdapter` gains an optional, trailing `watermarkTable` constructor param
+  (default `null`): supplying it persists the watermark in a small host-created table;
+  leaving it `null` requires no schema change at all.
+- `LocalSyncStore.getTombstones(limit)` — a default method (delegates to `getTombstones()` +
+  `take(limit)` for source compatibility) that bounds the tombstone read the same way
+  `getPending(limit)` bounds the pending read. `RoomSyncAdapter` overrides it with a real
+  `ORDER BY ... LIMIT`, oldest-first.
+
+### Documentation
+- `LocalSyncStore`'s "never throw" contract wording corrected: implementations must not
+  throw for ordinary outcomes (empty results, absent rows), but a genuine storage/IO failure
+  may propagate — the engine converts it to `SyncError.StorageError` at the `triggerSync()`
+  boundary, same as it does for a misbehaving adapter. This matches `RoomSyncAdapter`'s
+  actual (and correct) behavior; only the docs previously overclaimed.
+- `SyncNetworkAdapter.push`'s KDoc no longer references the removed `SyncableEntity.isDeleted`
+  (ADL-022) or claims `push` may carry tombstones.
+
 ## [0.1.1] - 2026-08-25
 
 ### Fixed

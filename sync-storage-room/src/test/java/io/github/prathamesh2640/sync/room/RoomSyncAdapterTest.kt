@@ -193,6 +193,88 @@ class RoomSyncAdapterTest {
         assertEquals(listOf("a"), store.getPending(limit = 100).map { it.id })
     }
 
+    // --- T1: tombstones never pushed as content --------------------------------
+
+    @Test
+    fun getPending_excludes_tombstoned_rows() = runTest {
+        seed("live", SyncState.PENDING, deleted = false)
+        seed("dead", SyncState.PENDING, deleted = true)
+
+        assertEquals(listOf("live"), store.getPending(limit = 100).map { it.id })
+    }
+
+    // --- T2: guarded write-back -------------------------------------------------
+
+    @Test
+    fun markSyncedIfUnchanged_stamps_SYNCED_when_lastModified_matches() = runTest {
+        seed("a", SyncState.PENDING, lastModified = now)
+
+        store.markSyncedIfUnchanged("a", now)
+
+        assertEquals(SyncState.SYNCED, store.getMetadata("a")?.syncState)
+    }
+
+    @Test
+    fun markSyncedIfUnchanged_is_a_no_op_when_lastModified_has_moved_on() = runTest {
+        seed("a", SyncState.PENDING, lastModified = now)
+        db.noteDao().upsert(note("a", lastModified = now + 1)) // concurrent edit after the push started
+
+        store.markSyncedIfUnchanged("a", now) // stale value from the in-flight push
+
+        assertEquals("stale write-back must not clobber the newer row", SyncState.PENDING, store.getMetadata("a")?.syncState)
+    }
+
+    // --- T5: corrupt syncState row does not throw ------------------------------
+
+    @Test
+    fun garbage_syncState_row_is_skipped_not_thrown() = runTest {
+        db.noteDao().upsert(note("a"))
+        db.openHelper.writableDatabase.execSQL(
+            "INSERT INTO notes_sync_meta (id, syncState, isDeleted) VALUES (?, ?, 0)",
+            arrayOf<Any?>("a", "NOT_A_REAL_STATE"),
+        )
+
+        assertTrue("corrupt row omitted, not thrown", store.getMetadataByIds(listOf("a")).isEmpty())
+        val counts = store.counts()
+        assertEquals(0, counts.pending)
+        assertEquals(0, counts.failed)
+        assertEquals(0, counts.conflict)
+    }
+
+    // --- T8: opt-in watermark persistence ---------------------------------------
+
+    @Test
+    fun watermark_persists_across_adapter_instances_when_table_supplied() = runTest {
+        fun storeWithWatermark() = RoomSyncAdapter<TestNote>(
+            database = db,
+            tableName = "notes",
+            metadataTable = "notes_sync_meta",
+            rawQuery = db.noteDao()::rawQuery,
+            upsert = db.noteDao()::upsertAll,
+            clock = { now },
+            watermarkTable = "notes_watermark",
+        )
+        val writer = storeWithWatermark()
+        val reader = storeWithWatermark()
+
+        assertEquals("nothing persisted yet", 0L, reader.getWatermark())
+
+        writer.setWatermark(12_345L)
+
+        assertEquals("a second instance over the same DB sees the persisted value", 12_345L, reader.getWatermark())
+
+        writer.setWatermark(99_999L) // overwrite, still exactly one row
+        assertEquals(99_999L, reader.getWatermark())
+    }
+
+    @Test
+    fun watermark_is_a_no_op_when_table_not_supplied() = runTest {
+        // `store` (from setUp) was built without watermarkTable.
+        assertEquals(0L, store.getWatermark())
+        store.setWatermark(500L) // must not throw despite no watermark table existing
+        assertEquals("still 0 — nothing was ever persisted", 0L, store.getWatermark())
+    }
+
     // --- tombstones -----------------------------------------------------------
 
     @Test
@@ -201,6 +283,17 @@ class RoomSyncAdapterTest {
         seed("dead", SyncState.PENDING, deleted = true)
 
         assertEquals(listOf("dead"), store.getTombstones().map { it.id })
+    }
+
+    @Test
+    fun getTombstones_limit_caps_at_limit_oldest_first_without_loading_the_rest() = runTest {
+        seed("newest", SyncState.PENDING, deleted = true, lastModified = now + 300)
+        seed("middle", SyncState.PENDING, deleted = true, lastModified = now + 200)
+        seed("oldest", SyncState.PENDING, deleted = true, lastModified = now + 100)
+
+        assertEquals(listOf("oldest", "middle"), store.getTombstones(limit = 2).map { it.id })
+        assertEquals(listOf("oldest", "middle", "newest"), store.getTombstones(limit = 10).map { it.id })
+        assertTrue(store.getTombstones(limit = 0).isEmpty())
     }
 
     @Test
@@ -514,8 +607,24 @@ internal interface RenamedNoteDao {
     @RawQuery suspend fun rawQuery(query: SupportSQLiteQuery): List<RenamedNote>
 }
 
+/**
+ * The optional `notes_watermark` table (T8) [RoomSyncAdapter] reads/writes via raw SQL
+ * when constructed with `watermarkTable`. Declared as a Room `@Entity` only so the
+ * in-memory test database creates its schema automatically — a real host creates this
+ * table via a `Migration`, same as [TestSyncMetaRow].
+ */
+@Entity(tableName = "notes_watermark")
+internal data class TestWatermarkRow(
+    @PrimaryKey val id: Long,
+    val value: Long,
+)
+
 @Database(
-    entities = [TestNote::class, TestSyncMetaRow::class, RenamedNote::class, RenamedSyncMetaRow::class],
+    entities = [
+        TestNote::class, TestSyncMetaRow::class,
+        RenamedNote::class, RenamedSyncMetaRow::class,
+        TestWatermarkRow::class,
+    ],
     version = 1,
     exportSchema = false,
 )

@@ -143,7 +143,7 @@ data class Note(
 ) : SyncableEntity
 ```
 
-Creating or updating a row isn't enough by itself — call `store.enqueue(entity)` after every local insert/update (persists + marks `PENDING`; there's no column default doing this implicitly). For a delete, call `store.markDeleted(id)` instead: SyncEngine pushes the tombstone and hard-deletes the local row only after the server confirms it, so deletions are never lost while offline.
+Creating or updating a row isn't enough by itself — call `store.enqueue(entity)` after every local insert/update (persists + marks `PENDING`; there's no column default doing this implicitly). For a delete, call `store.markDeleted(id)` instead: SyncEngine confirms the tombstone directly against the remote and hard-deletes the local row only after the server confirms it — the tombstone's content is never sent as a `push` upsert, so deletions are never lost while offline and never risk resurrecting the row on another device.
 
 **Sync lifecycle.** Every entity moves through `PENDING → SYNCING → SYNCED`, with `FAILED` (re-queued next run) and `CONFLICT` (resolved by your `ConflictResolver` → `PENDING` → pushed back) branches. Beyond the single `syncState: StateFlow<SyncState>` enum, `engine.stats: StateFlow<SyncStats>` reports pending/failed/conflict counts (via `store.counts()`), the last run's timestamp, and its first error — updated once at the end of every `triggerSync()` run, not on every local write. This is what backs the debug dashboard with no host-side hand-counting.
 
@@ -177,8 +177,12 @@ interface LocalSyncStore<T : SyncableEntity> {
     suspend fun counts(): SyncCounts                    // pending/failed/conflict — backs engine.stats
     suspend fun upsert(entities: List<T>)
     suspend fun getTombstones(): List<T>
+    suspend fun getTombstones(limit: Int): List<T>     // default: getTombstones().take(limit); bounds like getPending
     suspend fun markSyncState(id: String, state: SyncState)   // upsert — creates the row if absent
     suspend fun enqueue(entity: T)                             // default: upsert(listOf(entity)) + markSyncState(id, PENDING)
+    suspend fun markSyncedIfUnchanged(id: String, lastModified: Long)  // default: unconditional markSyncState(id, SYNCED)
+    suspend fun getWatermark(): Long                            // default: 0L — persisted pull watermark, opt-in
+    suspend fun setWatermark(value: Long)                       // default: no-op
     suspend fun markDeleted(id: String)
     suspend fun hardDelete(ids: List<String>)
     suspend fun purgeExpiredTombstones(retentionDays: Int): Int
@@ -195,6 +199,8 @@ val store = RoomSyncAdapter<Note>(
 ```
 
 Every raw-SQL write calls `InvalidationTracker.refreshVersionsAsync()` after its transaction, so a `Flow` query you observe over either table sees engine writes exactly as it would see your own DAO writes. `idColumn`/`modifiedColumn` are configurable if your entity renames either with `@ColumnInfo`; every table/column name is validated as a SQL identifier and every value is bound (no injection risk). `purgeExpiredTombstones` hard-deletes failed tombstones past `tombstoneRetentionDays` for GDPR erasure hygiene.
+
+Pass an optional trailing `watermarkTable` name to persist the pull watermark across process restarts (a small host-created 1-row table, `id`/`value`, created via the same `Migration` as `metadataTable`). Leaving it `null` (the default) requires no schema change — every fresh process simply re-pulls everything from the start, which is safe (`upsert` is idempotent) if not bandwidth-free.
 
 **Background sync.** `:sync-workmanager`'s `WorkManagerSyncScheduler` implements the framework-free `SyncScheduler` interface, keeping WorkManager out of your code entirely:
 

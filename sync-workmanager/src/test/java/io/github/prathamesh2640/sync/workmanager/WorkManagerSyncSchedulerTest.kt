@@ -85,6 +85,51 @@ class WorkManagerSyncSchedulerTest {
     }
 
     @Test
+    fun worker_maps_unresolvable_conflict_failure_to_success() = runTest {
+        SyncEngineRegistry.register(SyncWorker.DEFAULT_ENGINE_KEY) {
+            FakeEngine(SyncResult.Failure(SyncError.ConflictUnresolvable("x")))
+        }
+
+        val worker = defaultKeyedWorker().build()
+
+        assertEquals(ListenableWorker.Result.success(), worker.doWork())
+    }
+
+    @Test
+    fun worker_maps_partial_failure_of_only_conflicts_to_success() = runTest {
+        SyncEngineRegistry.register(SyncWorker.DEFAULT_ENGINE_KEY) {
+            FakeEngine(
+                SyncResult.PartialFailure(
+                    syncedCount = 1,
+                    failedCount = 2,
+                    errors = listOf(SyncError.ConflictUnresolvable("a"), SyncError.ConflictUnresolvable("b")),
+                ),
+            )
+        }
+
+        val worker = defaultKeyedWorker().build()
+
+        assertEquals(ListenableWorker.Result.success(), worker.doWork())
+    }
+
+    @Test
+    fun worker_maps_partial_failure_with_a_non_conflict_error_to_retry() = runTest {
+        SyncEngineRegistry.register(SyncWorker.DEFAULT_ENGINE_KEY) {
+            FakeEngine(
+                SyncResult.PartialFailure(
+                    syncedCount = 1,
+                    failedCount = 2,
+                    errors = listOf(SyncError.ConflictUnresolvable("a"), SyncError.HttpError(500)),
+                ),
+            )
+        }
+
+        val worker = defaultKeyedWorker().build()
+
+        assertEquals(ListenableWorker.Result.retry(), worker.doWork())
+    }
+
+    @Test
     fun worker_without_registered_engine_fails_cleanly() = runTest {
         SyncEngineRegistry.clear(SyncWorker.DEFAULT_ENGINE_KEY)
 

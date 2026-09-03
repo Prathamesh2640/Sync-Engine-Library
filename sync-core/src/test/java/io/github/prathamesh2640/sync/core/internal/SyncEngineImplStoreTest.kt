@@ -25,7 +25,7 @@ import org.junit.Test
  */
 class SyncEngineImplStoreTest {
 
-    private fun note(id: String) = Note(id = id, title = "t-$id", lastModified = 0L)
+    private fun note(id: String, lastModified: Long = 0L) = Note(id = id, title = "t-$id", lastModified = lastModified)
 
     /** In-memory [LocalSyncStore] that records the writes the engine makes. Seeds every entity PENDING. */
     private class FakeStore(initial: List<Note> = emptyList()) : LocalSyncStore<Note> {
@@ -70,6 +70,15 @@ class SyncEngineImplStoreTest {
             stateWrites += id to state
             metadata[id] = metadata[id]?.copy(syncState = state) ?: SyncMetadata(syncState = state)
         }
+
+        // Real guard (unlike LocalSyncStore's unconditional default): only stamps
+        // SYNCED if the row's current lastModified still matches what was pushed.
+        override suspend fun markSyncedIfUnchanged(id: String, lastModified: Long) {
+            if (rows[id]?.lastModified == lastModified) markSyncState(id, SyncState.SYNCED)
+        }
+
+        /** Current metadata state, independent of whether a write actually landed. */
+        fun currentState(id: String): SyncState? = metadata[id]?.syncState
 
         override suspend fun markDeleted(id: String) {
             metadata[id] = SyncMetadata(syncState = SyncState.PENDING, isDeleted = true)
@@ -244,6 +253,36 @@ class SyncEngineImplStoreTest {
         assertTrue("expected PartialFailure but was $result", result is SyncResult.PartialFailure)
         assertEquals(SyncState.SYNCED, store.stateOf("ok"))
         assertEquals(SyncState.FAILED, store.stateOf("boom"))
+    }
+
+    // --- write-back race (T2) --------------------------------------------------
+
+    @Test
+    fun `a concurrent edit during push is not clobbered by the write-back`() = runTest {
+        val store = FakeStore(listOf(note("a")))
+        // Simulates a host edit landing (via store.enqueue) while "a"'s push is in
+        // flight: by the time push returns Success, the row's lastModified has moved
+        // on and the row is PENDING again — the write-back must not stamp SYNCED over it.
+        val adapter = object : SyncNetworkAdapter<Note> {
+            override suspend fun push(payload: List<Note>): NetworkResult<Unit> {
+                store.upsert(listOf(note("a", lastModified = 99L)))
+                store.markSyncState("a", SyncState.PENDING)
+                return NetworkResult.Success(Unit)
+            }
+            override suspend fun pull(since: Long): NetworkResult<List<Note>> = NetworkResult.Success(emptyList())
+            override suspend fun delete(ids: List<String>): NetworkResult<Unit> = NetworkResult.Success(Unit)
+        }
+        val engine = SyncEngineImpl(adapter, SyncEngineConfig {}, UnconfinedTestDispatcher(testScheduler), store = store)
+
+        engine.triggerSync()
+        assertEquals("stale write-back must not clobber the concurrent edit", SyncState.PENDING, store.currentState("a"))
+
+        // Second run: no further mutation, so this push's lastModified (99) matches
+        // the row's current value and the guard lets the write-back through.
+        val secondAdapter = SuccessAdapter()
+        val secondEngine = SyncEngineImpl(secondAdapter, SyncEngineConfig {}, UnconfinedTestDispatcher(testScheduler), store = store)
+        secondEngine.triggerSync()
+        assertEquals(SyncState.SYNCED, store.currentState("a"))
     }
 
     // --- tombstone purge (SEC-10) ---------------------------------------------
